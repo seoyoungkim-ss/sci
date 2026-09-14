@@ -8,12 +8,15 @@ Writes:
     data/dummy_survey_data.json   - one raw record per department
     data/org_map_2026Q2.json      - sample org hierarchy (previous round)
 
-The org tree is intentionally wide (~25 leaf departments) rather than
-the minimal 5-level example from the first pass: the dashboard's key
-driver regression needs enough leaf-department observations to be
-numerically stable (see MIN_LEAF_SAMPLE_FOR_REGRESSION in
-dashboard/index.html), and a couple of deliberately tiny departments
-are kept in to exercise the "low response count" / "표본 부족" paths.
+The org tree mirrors the company's real shape: 전사(1) - 본부(2) -
+플랫폼/팀(3, the main reporting unit — 9 of them) - 하위팀/파트(4~5).
+Most 플랫폼/팀 units still break down into level-4 sub-teams so there
+are enough real respondent-level rows for the key-driver regression to
+be numerically stable (see MIN_LEAF_SAMPLE_FOR_REGRESSION in
+dashboard/index.html) — the dashboard's report mode can filter down to
+just the 9 level-3 rows whenever a "main unit" view is needed. A couple
+of deliberately tiny/low-response departments are kept in to exercise
+the "low response count" / "표본 부족" paths.
 """
 import json
 import random
@@ -47,59 +50,62 @@ def random_name():
 # Nested org tree. Nodes without "children" are leaves that run their
 # own survey (get real random scores); nodes with "children" are pure
 # rollups (placeholder row, scores always recomputed from children).
+#
+# Level 3 ("플랫폼/팀") is the company's real main reporting unit — 9
+# of them total, spread under 3 본부 (level 2), under 전사 (level 1).
+# Most still break down into level-4 sub-teams (so there's enough real
+# respondent-level data for the key-driver regression to be stable —
+# see MIN_LEAF_SAMPLE_FOR_REGRESSION), but 파트너십팀 and 법무팀 are
+# themselves leaves with no level-4 children, to keep exercising the
+# "no children below this level" rollup case.
 ORG_STRUCTURE = {
     "code": "C000", "name": "전사", "level": 1, "children": [
         {"code": "H100", "name": "제품본부", "level": 2, "children": [
-            {"code": "R110", "name": "개발실", "level": 3, "children": [
-                {"code": "T111", "name": "백엔드팀", "level": 4, "children": [
-                    {"code": "P1111", "name": "플랫폼파트", "level": 5, "target_range": (12, 15)},
-                    {"code": "P1112", "name": "데이터파트", "level": 5, "target_range": (10, 13)},
+            {"code": "R110", "name": "커머스플랫폼", "level": 3, "children": [
+                {"code": "T111", "name": "프론트파트", "level": 4, "target_range": (15, 20)},
+                {"code": "T112", "name": "백엔드파트", "level": 4, "children": [
+                    {"code": "P1121", "name": "플랫폼셀", "level": 5, "target_range": (10, 13)},
+                    {"code": "P1122", "name": "데이터셀", "level": 5, "target_range": (8, 11)},
                 ]},
-                {"code": "T112", "name": "프론트팀", "level": 4, "target_range": (15, 20)},
-                {"code": "T113", "name": "플랫폼팀", "level": 4, "target_range": (12, 18)},
-                {"code": "T114", "name": "QA팀", "level": 4, "target_range": (10, 15)},
+                {"code": "T113", "name": "QA파트", "level": 4, "target_range": (10, 14)},
             ]},
-            {"code": "R120", "name": "디자인실", "level": 3, "children": [
-                {"code": "T121", "name": "UX팀", "level": 4, "target_range": (18, 24)},
-                {"code": "T122", "name": "비주얼팀", "level": 4, "target_range": (10, 14)},
-                {"code": "T123", "name": "리서치팀", "level": 4, "target_range": (8, 12)},
+            {"code": "R120", "name": "결제플랫폼", "level": 3, "children": [
+                {"code": "T121", "name": "결제개발팀", "level": 4, "target_range": (14, 18)},
+                {"code": "T122", "name": "정산팀", "level": 4, "target_range": (10, 14)},
+                {"code": "T123", "name": "PG연동팀", "level": 4, "target_range": (8, 12)},
+            ]},
+            {"code": "R130", "name": "데이터플랫폼", "level": 3, "children": [
+                {"code": "T131", "name": "데이터엔지니어링팀", "level": 4, "target_range": (12, 16)},
+                {"code": "T132", "name": "데이터분석팀", "level": 4, "target_range": (10, 14)},
+                {"code": "T133", "name": "ML팀", "level": 4, "target_range": (8, 12)},
             ]},
         ]},
         {"code": "H200", "name": "영업본부", "level": 2, "children": [
-            {"code": "R210", "name": "국내영업실", "level": 3, "children": [
+            {"code": "R210", "name": "국내영업팀", "level": 3, "children": [
                 {"code": "T211", "name": "1팀", "level": 4, "target_range": (16, 22), "leader": SHARED_LEADER},
                 {"code": "T212", "name": "2팀", "level": 4, "target_range": (16, 22), "leader": SHARED_LEADER},
                 {"code": "T213", "name": "3팀", "level": 4, "target_range": (16, 22)},
             ]},
-            {"code": "R220", "name": "해외영업실", "level": 3, "children": [
+            {"code": "R220", "name": "해외영업팀", "level": 3, "children": [
                 {"code": "T221", "name": "아시아팀", "level": 4, "target_range": (20, 28)},
                 {"code": "T222", "name": "미주팀", "level": 4, "target_range": (14, 18)},
                 {"code": "T223", "name": "유럽팀", "level": 4, "target_range": (10, 15)},
             ]},
+            {"code": "R230", "name": "파트너십팀", "level": 3, "target_range": (8, 12)},  # level-3 leaf, no level-4 children
         ]},
         {"code": "H300", "name": "지원본부", "level": 2, "children": [
-            {"code": "R310", "name": "경영지원실", "level": 3, "children": [
-                {"code": "T311", "name": "인사팀", "level": 4, "target_range": (16, 22)},
-                {"code": "T312", "name": "재무팀", "level": 4, "target_range": (14, 18)},
-                {"code": "T313", "name": "총무팀", "level": 4, "target_range": (10, 14), "response_rate_override": 0.35},  # <50%: exercises the "경고" confidence badge
+            {"code": "R310", "name": "인사팀", "level": 3, "children": [
+                {"code": "T311", "name": "채용팀", "level": 4, "target_range": (10, 14)},
+                {"code": "T312", "name": "인사운영팀", "level": 4, "target_range": (12, 16)},
+                {"code": "T313", "name": "조직문화팀", "level": 4, "target_range": (10, 14), "response_rate_override": 0.35},  # <50%: exercises the "경고" confidence badge
             ]},
-            {"code": "R320", "name": "법무실", "level": 3, "children": [
-                {"code": "T321", "name": "법무1팀", "level": 4, "target_range": (8, 12)},
-                {"code": "T322", "name": "법무2팀", "level": 4, "target_range": (5, 6)},  # tiny: <5 responses expected
+            {"code": "R320", "name": "재무팀", "level": 3, "children": [
+                {"code": "T321", "name": "회계팀", "level": 4, "target_range": (10, 14)},
+                {"code": "T322", "name": "재무기획팀", "level": 4, "target_range": (8, 12)},
+                {"code": "T323", "name": "세무팀", "level": 4, "target_range": (4, 5)},  # tiny: <5 responses expected
             ]},
+            {"code": "R330", "name": "법무팀", "level": 3, "target_range": (8, 12)},  # level-3 leaf, no level-4 children
         ]},
-        {"code": "H400", "name": "마케팅본부", "level": 2, "children": [
-            {"code": "R410", "name": "브랜드실", "level": 3, "children": [
-                {"code": "T411", "name": "브랜드기획팀", "level": 4, "target_range": (10, 14)},
-                {"code": "T412", "name": "콘텐츠팀", "level": 4, "target_range": (12, 16)},
-                {"code": "T413", "name": "커뮤니케이션팀", "level": 4, "target_range": (8, 12)},
-            ]},
-            {"code": "R420", "name": "퍼포먼스실", "level": 3, "children": [
-                {"code": "T421", "name": "퍼포먼스팀", "level": 4, "target_range": (10, 15)},
-                {"code": "T422", "name": "데이터마케팅팀", "level": 4, "target_range": (4, 5)},  # tiny: <5 responses expected
-            ]},
-        ]},
-        {"code": "H500", "name": "감사본부", "level": 2, "target_range": (8, 12)},  # level-2 leaf, no level-3 children
     ]
 }
 
