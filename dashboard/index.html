@@ -354,6 +354,9 @@
   .filter-group-actions a { color: var(--coral-dark); text-decoration: none; cursor: pointer; }
   .filter-group-actions a:hover { text-decoration: underline; }
   .filter-group > div:not(.filter-group-title) { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  #report-highlight-checks { flex-direction: column; flex-wrap: nowrap; gap: 6px; }
+  .highlight-row { display: flex; align-items: center; gap: 6px; }
+  .hl-n-input { width: 52px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; text-align: center; }
   .report-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
   table.report-table { border-collapse: collapse; font-size: 11.5px; white-space: nowrap; }
   table.report-table th, table.report-table td { padding: 6px 9px; border: 1px solid var(--border); text-align: right; }
@@ -452,6 +455,10 @@
             <span class="filter-group-actions"><a href="#" data-action="columns-all">전체선택</a> · <a href="#" data-action="columns-none">전체해제</a></span>
           </div>
           <div id="report-column-checks"></div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title">하이라이트 (파란색 볼드로 표시)</div>
+          <div id="report-highlight-checks"></div>
         </div>
       </div>
       <div id="report-table-wrap" class="report-table-wrap"></div>
@@ -2335,6 +2342,12 @@ const state = {
   report: {
     columns: { hierarchy: true, code: true, leader: true, headcount: true, area: true, areaYoy: true, item: true, question: false },
     levels: null, // lazily filled with every level found in the data (null = not yet initialized)
+    highlight: {
+      areaBottom: { enabled: false, n: 3 },
+      areaTop: { enabled: false, n: 3 },
+      yoyDown: { enabled: false, n: 3 },
+      yoyUp: { enabled: false, n: 3 },
+    },
   },
 };
 
@@ -3443,28 +3456,64 @@ function buildReportRows() {
   }
   for (const root of rootCodes()) visit(root);
 
-  let maxDepth = 1;
   const rows = [];
   for (const code of codes) {
     const rec = rollup(code);
     if (!rec) continue;
     const path = breadcrumbPath(code).map(c => state.recordsByCode[c]?.dept_name ?? c);
-    maxDepth = Math.max(maxDepth, path.length);
     rows.push({ code, rec, path });
   }
-  return { rows, maxDepth };
+  return { rows };
+}
+
+const HIGHLIGHT_COLOR = "#1d4ed8"; // distinct blue, separate from the navy/coral/gold theme so it reads as a callout
+/** Definitions for the 4 report-mode highlight toggles: each ranks the
+ * currently-visible rows per area by `metric`, in `dir` order, and the
+ * top N (from the matching number input) get flagged blue+bold. */
+const REPORT_HIGHLIGHT_DEFS = [
+  { key: "areaBottom", label: "각 영역 하위부서", metric: "area", dir: "asc" },
+  { key: "areaTop", label: "각 영역 상위부서", metric: "area", dir: "desc" },
+  { key: "yoyDown", label: "전년비 하락폭이 큰", metric: "areaYoy", dir: "asc" },
+  { key: "yoyUp", label: "전년비 상승폭이 큰", metric: "areaYoy", dir: "desc" },
+];
+
+/** For each area, ranks the given (already level-filtered) rows by
+ * each enabled highlight definition's metric and keeps the top N codes
+ * as a Set — so a report cell can do a plain Set.has(code) lookup to
+ * decide whether it qualifies, independently per area per criterion. */
+function computeHighlightSets(rows) {
+  const sets = {};
+  for (const def of REPORT_HIGHLIGHT_DEFS) {
+    const cfg = state.report.highlight[def.key];
+    sets[def.key] = {};
+    if (!cfg.enabled || !cfg.n) continue;
+    for (const area of AREA_DEFS) {
+      const field = def.metric === "area" ? "area_scores" : "area_yoy";
+      const scored = rows
+        .map(r => ({ code: r.code, v: r.rec[field]?.[area.key] }))
+        .filter(x => typeof x.v === "number");
+      scored.sort((a, b) => (def.dir === "asc" ? a.v - b.v : b.v - a.v));
+      sets[def.key][area.key] = new Set(scored.slice(0, cfg.n).map(x => x.code));
+    }
+  }
+  return sets;
 }
 
 /** Turns the checked column groups into an ordered list of column
- * definitions ({ label, align, get }), so the header row and every
- * body row are built from the exact same source (no index bookkeeping
- * to keep in sync between the two). */
-function buildReportColumns(cols, maxDepth) {
+ * definitions ({ label, align, get, highlightFn? }), so the header row
+ * and every body row are built from the exact same source (no index
+ * bookkeeping to keep in sync between the two). */
+function buildReportColumns(cols, highlightSets) {
   const columns = [];
   if (cols.hierarchy) {
-    for (let i = 0; i < maxDepth; i++) {
-      columns.push({ label: `레벨${i + 1}`, align: "text", get: (rec, path) => path[i] ?? "" });
-    }
+    // A single indented "부서명" column reads like an actual org chart
+    // (전사 / 　└ 본부 / 　　└ 팀 ...) instead of a wall of "레벨1,
+    // 레벨2, 레벨3..." columns that only make sense as raw data.
+    columns.push({
+      label: "부서명", align: "text",
+      get: (rec, path) => "　".repeat(Math.max(0, path.length - 1)) + (path.length > 1 ? "└ " : "") + rec.dept_name,
+    });
+    columns.push({ label: "레벨", align: "num", get: rec => rec.dept_level });
   } else {
     columns.push({ label: "부서명", align: "text", get: rec => rec.dept_name });
   }
@@ -3479,10 +3528,18 @@ function buildReportColumns(cols, maxDepth) {
     columns.push({ label: "응답률", align: "num", get: rec => fmtPct(rec.response_rate) });
   }
   if (cols.area) {
-    for (const area of AREA_DEFS) columns.push({ label: area.key, align: "num", get: rec => fmtScore(rec.area_scores?.[area.key]) });
+    for (const area of AREA_DEFS) columns.push({
+      label: area.key, align: "num",
+      get: rec => fmtScore(rec.area_scores?.[area.key]),
+      highlightFn: (rec, code) => !!(highlightSets.areaBottom[area.key]?.has(code) || highlightSets.areaTop[area.key]?.has(code)),
+    });
   }
   if (cols.areaYoy) {
-    for (const area of AREA_DEFS) columns.push({ label: `${area.key} 전년비`, align: "num", get: rec => fmtYoyPlain(rec.area_yoy?.[area.key]) });
+    for (const area of AREA_DEFS) columns.push({
+      label: `${area.key} 전년비`, align: "num",
+      get: rec => fmtYoyPlain(rec.area_yoy?.[area.key]),
+      highlightFn: (rec, code) => !!(highlightSets.yoyDown[area.key]?.has(code) || highlightSets.yoyUp[area.key]?.has(code)),
+    });
   }
   if (cols.item) {
     for (const item of ALL_ITEM_KEYS) columns.push({ label: item, align: "num", get: rec => fmtScore(rec.item_scores?.[item]) });
@@ -3505,10 +3562,19 @@ function renderReportFilters(availableLevels) {
   document.getElementById("report-column-checks").innerHTML = REPORT_COLUMN_GROUPS.map(g =>
     `<label class="report-checkbox"><input type="checkbox" data-role="column" data-key="${g.key}" ${state.report.columns[g.key] ? "checked" : ""}> ${escapeHtml(g.label)}</label>`
   ).join("");
+  document.getElementById("report-highlight-checks").innerHTML = REPORT_HIGHLIGHT_DEFS.map(def => {
+    const cfg = state.report.highlight[def.key];
+    return `<label class="report-checkbox highlight-row">
+      <input type="checkbox" data-role="highlight" data-key="${def.key}" ${cfg.enabled ? "checked" : ""}>
+      ${escapeHtml(def.label)}
+      <input type="number" min="1" step="1" class="hl-n-input" data-role="highlight-n" data-key="${def.key}" value="${cfg.n}">
+      개
+    </label>`;
+  }).join("");
 }
 
 function renderReportMode() {
-  const { rows: allRows, maxDepth } = buildReportRows();
+  const { rows: allRows } = buildReportRows();
   const availableLevels = [...new Set(allRows.map(r => r.rec.dept_level))].sort((a, b) => a - b);
   if (!state.report.levels) state.report.levels = new Set(availableLevels);
   renderReportFilters(availableLevels);
@@ -3520,16 +3586,24 @@ function renderReportMode() {
     return;
   }
 
-  const columns = buildReportColumns(state.report.columns, maxDepth);
+  const highlightSets = computeHighlightSets(rows);
+  const columns = buildReportColumns(state.report.columns, highlightSets);
   if (!columns.length) {
     wrap.innerHTML = `<div class="note-box">표시할 항목을 하나 이상 선택하세요.</div>`;
     return;
   }
-  const hierarchyColCount = state.report.columns.hierarchy ? maxDepth : 1;
+  const hierarchyColCount = state.report.columns.hierarchy ? 2 : 1;
 
   const thead = `<thead><tr>${columns.map(c => `<th class="${c.align === "text" ? "text-col" : ""}">${escapeHtml(c.label)}</th>`).join("")}</tr></thead>`;
-  const tbody = `<tbody>${rows.map(({ rec, path }) =>
-    `<tr>${columns.map((c, i) => `<td class="${c.align === "text" ? "text-col" : ""} ${i < hierarchyColCount ? "level-cell" : ""}">${escapeHtml(String(c.get(rec, path)))}</td>`).join("")}</tr>`
+  const tbody = `<tbody>${rows.map(({ code, rec, path }) =>
+    `<tr>${columns.map((c, i) => {
+      // Inline style (not just a CSS class) so the blue/bold survives
+      // the plain-HTML clipboard copy into Excel/Word, which carries
+      // no <style> block with it.
+      const hl = c.highlightFn?.(rec, code);
+      const style = hl ? ` style="color:${HIGHLIGHT_COLOR};font-weight:800;"` : "";
+      return `<td${style} class="${c.align === "text" ? "text-col" : ""} ${i < hierarchyColCount ? "level-cell" : ""}">${escapeHtml(String(c.get(rec, path)))}</td>`;
+    }).join("")}</tr>`
   ).join("")}</tbody>`;
 
   wrap.innerHTML = `<table class="report-table" id="report-table">${thead}${tbody}</table>`;
@@ -3635,7 +3709,7 @@ document.getElementById("btn-mode-report").addEventListener("click", () => setMo
 document.getElementById("btn-copy-report").addEventListener("click", copyReportTable);
 
 document.getElementById("report-filters").addEventListener("change", (e) => {
-  const input = e.target.closest("input[type=checkbox]");
+  const input = e.target.closest("input");
   if (!input) return;
   if (input.dataset.role === "column") {
     state.report.columns[input.dataset.key] = input.checked;
@@ -3643,6 +3717,13 @@ document.getElementById("report-filters").addEventListener("change", (e) => {
     const level = Number(input.dataset.level);
     if (input.checked) state.report.levels.add(level);
     else state.report.levels.delete(level);
+  } else if (input.dataset.role === "highlight") {
+    state.report.highlight[input.dataset.key].enabled = input.checked;
+  } else if (input.dataset.role === "highlight-n") {
+    const n = Math.max(1, Math.round(Number(input.value)) || 1);
+    state.report.highlight[input.dataset.key].n = n;
+  } else {
+    return;
   }
   renderReportMode();
 });
