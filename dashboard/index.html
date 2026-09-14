@@ -2364,6 +2364,33 @@ function isDescendant(ancestorCode, code) {
   return false;
 }
 
+/** Rebuilds the org map so its codes match a newly-loaded survey data
+ * set: a department code keeps its existing parent only if BOTH the
+ * code and that parent still exist in the new data, otherwise it
+ * becomes a root (parent = null) awaiting placement. Without this,
+ * loading new survey data whose codes don't match the previous org
+ * map (e.g. the very first real-data load, replacing the embedded
+ * dummy codes) leaves admin mode showing only the old, now-dataless
+ * codes — the tree it renders is built from state.orgMap, not from
+ * the survey data. Returns whether any code had to fall back to root
+ * because its old parent disappeared, so callers can warn the admin
+ * that placement is needed. */
+function reconcileOrgMapWithSurveyData(records) {
+  const newCodes = new Set(records.map(r => r.dept_code));
+  const rebuilt = {};
+  let droppedToRoot = 0;
+  for (const code of newCodes) {
+    const existingParent = state.orgMap[code];
+    if (existingParent && newCodes.has(existingParent)) {
+      rebuilt[code] = existingParent;
+    } else {
+      rebuilt[code] = null;
+      if (existingParent) droppedToRoot++; // had a real (non-root) parent before that's now gone
+    }
+  }
+  return { orgMap: rebuilt, droppedToRoot, isFirstLoad: !Object.keys(state.orgMap).some(c => newCodes.has(c)) };
+}
+
 /* =========================================================
    Rollup: response-count-weighted average up the org tree.
    Mirrors scripts/schema_utils.py rollup().
@@ -3596,10 +3623,20 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
     }
     state.surveyData = records;
     indexRecords();
+    const { orgMap, droppedToRoot, isFirstLoad } = reconcileOrgMapWithSurveyData(records);
+    state.orgMap = orgMap;
+    state.selectedCode = rootCodes()[0] || null;
+    state.expandedTreeNodes = new Set(state.selectedCode ? [state.selectedCode] : []);
     invalidateRollupCache();
     companyBetasCache = null;
     renderCurrentMode();
-    statusEl.textContent = `"${file.name}" 불러옴 (${records.length}개 부서)`;
+    if (isFirstLoad) {
+      statusEl.textContent = `"${file.name}" 불러옴 (${records.length}개 부서) · 조직도가 없어 전부 최상위로 표시됩니다 — 관리자 모드에서 드래그로 배치하세요`;
+    } else if (droppedToRoot > 0) {
+      statusEl.textContent = `"${file.name}" 불러옴 (${records.length}개 부서) · ${droppedToRoot}개 부서가 상위 조직을 잃어 최상위로 이동됨 — 관리자 모드에서 확인하세요`;
+    } else {
+      statusEl.textContent = `"${file.name}" 불러옴 (${records.length}개 부서)`;
+    }
     statusEl.className = "load-status ok";
   });
   e.target.value = "";
@@ -3611,11 +3648,20 @@ document.getElementById("file-orgmap").addEventListener("change", (e) => {
   if (!file) return;
   readJsonFile(file, (json) => {
     state.orgMap = { ...(json.map || json) };
+    // Fill in any department present in the currently-loaded survey
+    // data but missing from this org map file (e.g. a new department
+    // added since this org map was saved) as a root awaiting
+    // placement, and drop codes that no longer exist in the survey
+    // data — otherwise they'd render as dataless leftover nodes.
+    const { orgMap, droppedToRoot } = reconcileOrgMapWithSurveyData(state.surveyData);
+    state.orgMap = orgMap;
     state.basedOn = state.round;
     state.round = json.round ? `${json.round}(불러옴)` : state.round;
     invalidateRollupCache();
     renderAdminMode();
-    document.getElementById("admin-status").textContent = `"${file.name}" 불러옴 — 변경 후 새 회차로 저장하세요`;
+    document.getElementById("admin-status").textContent = droppedToRoot > 0
+      ? `"${file.name}" 불러옴 — ${droppedToRoot}개 부서가 현재 데이터와 맞지 않아 최상위로 이동됨. 변경 후 새 회차로 저장하세요`
+      : `"${file.name}" 불러옴 — 변경 후 새 회차로 저장하세요`;
   });
   e.target.value = "";
 });
