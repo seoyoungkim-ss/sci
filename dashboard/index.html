@@ -2345,6 +2345,19 @@ const state = {
   surveyData: DUMMY_SURVEY_DATA,
   recordsByCode: {},
   orgMap: { ...DUMMY_ORG_MAP.map },
+  // Sibling/render order lives in this separate ARRAY, never in
+  // state.orgMap's own key order. Reason: JavaScript objects always
+  // iterate "integer-like" string keys ("1001", "9000", ...) in
+  // ascending NUMERIC order before any other keys, regardless of
+  // insertion order — Object.keys/entries/for-in/JSON.stringify all do
+  // this silently, per spec. Real department codes are very often
+  // pure numbers, so relying on state.orgMap's key order (as an
+  // earlier version of this file did) meant every reorder operation
+  // on numeric-coded departments got silently re-sorted back to
+  // ascending numeric order on the next render — dragging/▲▼ looked
+  // like it "did nothing". A plain array's element order is never
+  // touched by the engine, so it's the only safe place to keep this.
+  orgOrder: DUMMY_ORG_MAP.order ? [...DUMMY_ORG_MAP.order] : Object.keys(DUMMY_ORG_MAP.map),
   round: DUMMY_ORG_MAP.round,
   basedOn: DUMMY_ORG_MAP.based_on,
   selectedCode: null,
@@ -2365,8 +2378,21 @@ const state = {
 };
 
 function indexRecords() {
+  // Force dept_code to a string everywhere up front. Excel-exported
+  // department codes are very often pure numbers (e.g. 1001), and a
+  // raw JS number vs. the string "1001" fail strict-equality checks
+  // used all over the org-tree logic even though object property
+  // lookups happen to auto-coerce and mask the difference in most
+  // places — normalizing once here avoids that whole class of bug.
+  for (const r of state.surveyData) r.dept_code = String(r.dept_code);
   state.recordsByCode = {};
   for (const r of state.surveyData) state.recordsByCode[r.dept_code] = r;
+}
+
+function orderIndexMap() {
+  const m = new Map();
+  state.orgOrder.forEach((code, i) => m.set(code, i));
+  return m;
 }
 
 function childrenByParent() {
@@ -2374,11 +2400,16 @@ function childrenByParent() {
   for (const [code, parent] of Object.entries(state.orgMap)) {
     if (parent) (map[parent] = map[parent] || []).push(code);
   }
+  const pos = orderIndexMap();
+  for (const key in map) map[key].sort((a, b) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity));
   return map;
 }
 
 function rootCodes() {
-  return Object.keys(state.orgMap).filter(code => !state.orgMap[code]);
+  const pos = orderIndexMap();
+  return Object.keys(state.orgMap)
+    .filter(code => !state.orgMap[code])
+    .sort((a, b) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity));
 }
 
 function isDescendant(ancestorCode, code) {
@@ -2410,16 +2441,22 @@ function isDescendant(ancestorCode, code) {
  * (e.g. the very first real-data load, replacing the embedded dummy
  * codes) leaves admin mode showing only the old, now-dataless codes —
  * the tree it renders is built from state.orgMap, not from the survey
- * data. Also preserves state.orgMap's existing KEY ORDER for every
+ * data. Also preserves state.orgOrder's existing ORDER for every
  * code that survives — sibling order is entirely derived from that
- * key order (see childrenByParent()), so an admin's manual drag-and-
- * drop reordering has to be carried forward here too; only appending
- * brand-new codes at the end. Without this, reloading survey data
- * (e.g. refreshing scores for a later round) would silently re-sort
- * every department back into the JSON file's row order, discarding
- * any reordering the admin had already done, even though parent/child
- * placement was correctly preserved — a very easy bug to miss because
- * the tree still looks "correct", just back in the wrong order.
+ * array (see childrenByParent()), so an admin's manual drag-and-drop
+ * reordering has to be carried forward here too; only appending
+ * brand-new codes at the end. (This must be a plain array, not
+ * state.orgMap's object key order: JS engines silently re-sort
+ * integer-like string keys — e.g. "1001", "9000", exactly what real
+ * numeric department codes look like — back into ascending numeric
+ * order on every Object.keys()/Object.entries() call, which used to
+ * discard any manual reordering the moment the map was touched again.)
+ * Without this reconciliation, reloading survey data (e.g. refreshing
+ * scores for a later round) would silently re-sort every department
+ * back into the JSON file's row order, discarding any reordering the
+ * admin had already done, even though parent/child placement was
+ * correctly preserved — a very easy bug to miss because the tree
+ * still looks "correct", just back in the wrong order.
  * Returns whether any code had to fall back because its old parent
  * disappeared, how many 레벨2 departments were auto-nested, and what
  * the default top-level code was (if any), so callers can tell the
@@ -2431,17 +2468,19 @@ function reconcileOrgMapWithSurveyData(records) {
   const defaultTopCode = level1Codes.length === 1 ? level1Codes[0] : null;
 
   const orderedCodes = [
-    ...Object.keys(state.orgMap).filter(c => newCodes.has(c)), // existing codes, in their current order
-    ...[...newCodes].filter(c => !(c in state.orgMap)),        // brand-new codes, appended at the end
+    ...state.orgOrder.filter(c => newCodes.has(c)),                    // existing codes, in their current order
+    ...[...newCodes].filter(c => !state.orgOrder.includes(c)),         // brand-new codes, appended at the end
   ];
 
   const rebuilt = {};
+  const rebuiltOrder = [];
   let droppedToRoot = 0;
   let autoNestedUnderTop = 0;
   for (const code of orderedCodes) {
     const existingParent = state.orgMap[code];
     if (existingParent && newCodes.has(existingParent)) {
       rebuilt[code] = existingParent;
+      rebuiltOrder.push(code);
       continue;
     }
     if (defaultTopCode && code !== defaultTopCode && levelByCode[code] === 2) {
@@ -2451,8 +2490,16 @@ function reconcileOrgMapWithSurveyData(records) {
       rebuilt[code] = null; // 레벨1 itself, or 레벨3+ awaiting manual placement by the admin
     }
     if (existingParent) droppedToRoot++; // had a real parent before that's now gone
+    rebuiltOrder.push(code);
   }
-  return { orgMap: rebuilt, droppedToRoot, defaultTopCode, autoNestedUnderTop, isFirstLoad: !Object.keys(state.orgMap).some(c => newCodes.has(c)) };
+  return {
+    orgMap: rebuilt,
+    orgOrder: rebuiltOrder,
+    droppedToRoot,
+    defaultTopCode,
+    autoNestedUnderTop,
+    isFirstLoad: !state.orgOrder.some(c => newCodes.has(c)),
+  };
 }
 
 /* =========================================================
@@ -3454,15 +3501,14 @@ function renderAdminNode(code, container) {
   container.appendChild(li);
 }
 
-/** Moves `code`'s entry to the end of the org map's key order (JS
- * objects preserve insertion order for string keys, and that order is
- * what childrenByParent()/rootCodes() render in) — so a reparented
- * node predictably lands as the LAST child under its new parent
- * instead of wherever it happened to sit in the map before. */
+/** Moves `code` to the end of state.orgOrder — so a reparented node
+ * predictably lands as the LAST child under its new parent instead of
+ * wherever it happened to sit before. (Order lives in the array, not
+ * in state.orgMap's key order — see the comment on state.orgOrder.) */
 function moveEntryToEnd(code, parent) {
-  const rest = Object.entries(state.orgMap).filter(([c]) => c !== code);
-  rest.push([code, parent]);
-  state.orgMap = Object.fromEntries(rest);
+  state.orgMap[code] = parent;
+  state.orgOrder = state.orgOrder.filter(c => c !== code);
+  state.orgOrder.push(code);
 }
 
 function reparent(code, newParent) {
@@ -3479,11 +3525,8 @@ function reparent(code, newParent) {
 
 /** Reorders `code` to sit immediately before/after `referenceCode`
  * among referenceCode's siblings (adopting referenceCode's parent).
- * Since childrenByParent() derives sibling order purely from each
- * code's relative position in state.orgMap's key order, splicing
- * code's entry to sit next to referenceCode's in the map is enough to
- * fix its position within that filtered sibling list — everything
- * else's relative order is untouched. */
+ * Splices code's position directly in state.orgOrder — the array
+ * childrenByParent()/rootCodes() actually sort by. */
 function reorderNode(code, referenceCode, position) {
   if (!code || code === referenceCode) return;
   const newParent = state.orgMap[referenceCode];
@@ -3492,11 +3535,12 @@ function reorderNode(code, referenceCode, position) {
     alert("하위 부서를 상위 부서로 이동할 수 없습니다.");
     return;
   }
-  const entries = Object.entries(state.orgMap).filter(([c]) => c !== code);
-  const refIndex = entries.findIndex(([c]) => c === referenceCode);
+  state.orgMap[code] = newParent;
+  const order = state.orgOrder.filter(c => c !== code);
+  const refIndex = order.indexOf(referenceCode);
   const insertAt = position === "before" ? refIndex : refIndex + 1;
-  entries.splice(insertAt, 0, [code, newParent]);
-  state.orgMap = Object.fromEntries(entries);
+  order.splice(insertAt, 0, code);
+  state.orgOrder = order;
   invalidateRollupCache();
   renderAdminMode();
   document.getElementById("admin-status").textContent = `저장되지 않은 변경사항 있음`;
@@ -3884,8 +3928,9 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
     }
     state.surveyData = records;
     indexRecords();
-    const { orgMap, droppedToRoot, defaultTopCode, autoNestedUnderTop, isFirstLoad } = reconcileOrgMapWithSurveyData(records);
+    const { orgMap, orgOrder, droppedToRoot, defaultTopCode, autoNestedUnderTop, isFirstLoad } = reconcileOrgMapWithSurveyData(records);
     state.orgMap = orgMap;
+    state.orgOrder = orgOrder;
     state.selectedCode = defaultTopCode || rootCodes()[0] || null;
     state.expandedTreeNodes = new Set(state.selectedCode ? [state.selectedCode] : []);
     invalidateRollupCache();
@@ -3913,14 +3958,26 @@ document.getElementById("file-orgmap").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
   readJsonFile(file, (json) => {
-    state.orgMap = { ...(json.map || json) };
+    const rawMap = json.map || json;
+    state.orgMap = {};
+    for (const [code, parent] of Object.entries(rawMap)) {
+      state.orgMap[String(code)] = parent === null || parent === undefined ? null : String(parent);
+    }
+    // Prefer the file's own saved "order" array (added alongside "map"
+    // specifically so sibling order survives a save/reload round-trip —
+    // see reconcileOrgMapWithSurveyData's comment for why this can't be
+    // recovered from the map's object key order alone). Older files
+    // without it fall back to key order, which is fine for the
+    // non-numeric codes those older files would have used.
+    state.orgOrder = Array.isArray(json.order) ? json.order.map(String) : Object.keys(state.orgMap);
     // Fill in any department present in the currently-loaded survey
     // data but missing from this org map file (e.g. a new department
     // added since this org map was saved) under the 레벨1 department
     // awaiting placement, and drop codes that no longer exist in the
     // survey data — otherwise they'd render as dataless leftover nodes.
-    const { orgMap, droppedToRoot, defaultTopCode } = reconcileOrgMapWithSurveyData(state.surveyData);
+    const { orgMap, orgOrder, droppedToRoot, defaultTopCode } = reconcileOrgMapWithSurveyData(state.surveyData);
     state.orgMap = orgMap;
+    state.orgOrder = orgOrder;
     state.basedOn = state.round;
     state.round = json.round ? `${json.round}(불러옴)` : state.round;
     invalidateRollupCache();
@@ -3936,7 +3993,7 @@ document.getElementById("file-orgmap").addEventListener("change", (e) => {
 document.getElementById("btn-save-orgmap").addEventListener("click", () => {
   const name = document.getElementById("round-name-input").value.trim();
   if (!name) { alert("새 회차 이름을 입력하세요 (예: 2026Q3)"); return; }
-  const payload = { round: name, based_on: state.basedOn || null, map: state.orgMap, saved_at: new Date().toISOString() };
+  const payload = { round: name, based_on: state.basedOn || null, map: state.orgMap, order: state.orgOrder, saved_at: new Date().toISOString() };
   downloadJson(payload, `org_map_${name}.json`);
   state.round = name;
   document.getElementById("round-badge").textContent = name;

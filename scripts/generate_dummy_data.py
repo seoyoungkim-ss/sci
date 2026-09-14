@@ -218,7 +218,7 @@ def main():
         json.dump(records, f, ensure_ascii=False, indent=2)
     print(f"wrote {survey_path} ({len(records)} departments)")
 
-    org_payload = {"round": "2026Q2", "based_on": None, "map": org_map}
+    org_payload = {"round": "2026Q2", "based_on": None, "map": org_map, "order": list(org_map.keys())}
     org_path = DATA_DIR / "org_map_2026Q2.json"
     with open(org_path, "w", encoding="utf-8") as f:
         json.dump(org_payload, f, ensure_ascii=False, indent=2)
