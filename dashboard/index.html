@@ -3404,11 +3404,17 @@ function renderAdminNode(code, container) {
     else reparent(state.dragCode, code);
   });
 
+  // A disabled button that still LOOKS clickable (or a user who can't
+  // tell 0.3 opacity apart from active at a glance) reads as "broken"
+  // rather than "already at the boundary" — so the disabled state gets
+  // its own explicit tooltip instead of reusing the normal one.
+  const isFirst = siblingIdx <= 0;
+  const isLast = siblingIdx === -1 || siblingIdx >= siblingList.length - 1;
   const actions = document.createElement("span");
   actions.className = "node-actions";
   actions.innerHTML = `
-    <button type="button" class="node-move-btn" data-dir="up" title="위로 이동" ${siblingIdx <= 0 ? "disabled" : ""}>▲</button>
-    <button type="button" class="node-move-btn" data-dir="down" title="아래로 이동" ${siblingIdx === -1 || siblingIdx >= siblingList.length - 1 ? "disabled" : ""}>▼</button>
+    <button type="button" class="node-move-btn" data-dir="up" title="${isFirst ? "이미 맨 위입니다" : "위로 이동"}" ${isFirst ? "disabled" : ""}>▲</button>
+    <button type="button" class="node-move-btn" data-dir="down" title="${isLast ? "이미 맨 아래입니다" : "아래로 이동"}" ${isLast ? "disabled" : ""}>▼</button>
   `;
   actions.querySelectorAll(".node-move-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
