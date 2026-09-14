@@ -352,8 +352,22 @@
   }
   .subtoggle button.active { background: var(--navy-900); color: #fff; border-color: var(--navy-900); }
 
+  /* ---- Report mode (전체 보고: full flat table, copy-to-Excel/Word) ---- */
+  .report-panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .report-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+  .report-checkbox { font-size: 12.5px; color: var(--navy-800); display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .report-hint { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.6; }
+  #report-copy-status { font-size: 12px; color: var(--positive); font-weight: 600; }
+  .report-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.report-table { border-collapse: collapse; font-size: 11.5px; white-space: nowrap; }
+  table.report-table th, table.report-table td { padding: 6px 9px; border: 1px solid var(--border); text-align: right; }
+  table.report-table th { background: var(--navy-900); color: #fff; position: sticky; top: 0; font-weight: 700; text-align: center; }
+  table.report-table td.text-col, table.report-table th.text-col { text-align: left; }
+  table.report-table tr:nth-child(even) td { background: var(--paper); }
+  table.report-table td.level-cell { color: var(--navy-800); font-weight: 600; background: var(--navy-100) !important; }
+
   @media (max-width: 900px) {
-    #view-mode, #admin-mode { flex-direction: column; }
+    #view-mode, #admin-mode, #report-mode { flex-direction: column; }
     .sidebar { width: 100%; position: static; max-height: none; }
     .area-grid { grid-template-columns: 1fr; }
     .item-grid { grid-template-columns: repeat(2, 1fr); }
@@ -368,6 +382,7 @@
   <div class="mode-switch">
     <button id="btn-mode-view" class="active">조회 모드</button>
     <button id="btn-mode-admin">관리자 모드</button>
+    <button id="btn-mode-report">전체 보고</button>
   </div>
   <div class="file-controls">
     <button class="btn ghost" id="btn-load-survey">부서 데이터 불러오기</button>
@@ -420,6 +435,20 @@
     </div>
   </div>
 
+  <!-- ===================== REPORT MODE ===================== -->
+  <div id="report-mode" hidden>
+    <div class="report-panel">
+      <div class="report-toolbar">
+        <button class="btn coral" id="btn-copy-report">표 전체 복사 (엑셀·워드용)</button>
+        <label class="report-checkbox"><input type="checkbox" id="report-include-questions"> 문항별 점수(30개) 포함</label>
+        <label class="report-checkbox"><input type="checkbox" id="report-include-yoy" checked> 전년비 포함</label>
+        <span id="report-copy-status"></span>
+      </div>
+      <div class="report-hint">모든 조직(전사~최하위 부서)과 부서장 정보를 한 표에 담았습니다. "표 전체 복사" 클릭 후 엑셀/워드에 Ctrl+V로 붙여넣으면 표 형태 그대로 들어갑니다.</div>
+      <div id="report-table-wrap" class="report-table-wrap"></div>
+    </div>
+  </div>
+
 </main>
 
 <script>
@@ -455,6 +484,7 @@ const NO_DATA_MARKER = "-";
    ========================================================= */
 const FINAL_SATISFACTION_ITEM = "회사만족"; // key-driver regression target (column Z item)
 const DRIVER_ITEMS = AREA_DEFS.flatMap(a => a.items.map(i => i.key)).filter(k => k !== FINAL_SATISFACTION_ITEM);
+const ALL_ITEM_KEYS = AREA_DEFS.flatMap(a => a.items.map(i => i.key)); // all 12 items, spec table order
 const ANALYSIS = {
   MIN_RESPONSES: 5,                          // below this, a dept is excluded from regression/variance/leadership stats ("표본 부족")
   MIN_LEAF_SAMPLE_FOR_REGRESSION: DRIVER_ITEMS.length + 5, // need comfortably more observations than predictors
@@ -3271,6 +3301,131 @@ function setupRootDropzone() {
 }
 
 /* =========================================================
+   Report mode: one flat table of every org unit + leader, for
+   copy-pasting into Excel/Word as an internal report.
+   ========================================================= */
+function fmtYoyPlain(v) {
+  if (v === null || v === undefined || v === NO_DATA_MARKER) return "데이터없음";
+  return (v >= 0 ? "+" : "") + v.toFixed(1);
+}
+
+/** Depth-first list of every org code (so the table reads top-down
+ * like the org chart), each paired with its ancestor-name path. */
+function buildReportRows() {
+  const codes = [];
+  const childMap = childrenByParent();
+  function visit(code) {
+    codes.push(code);
+    for (const child of childMap[code] || []) visit(child);
+  }
+  for (const root of rootCodes()) visit(root);
+
+  let maxDepth = 1;
+  const rows = [];
+  for (const code of codes) {
+    const rec = rollup(code);
+    if (!rec) continue;
+    const path = breadcrumbPath(code).map(c => state.recordsByCode[c]?.dept_name ?? c);
+    maxDepth = Math.max(maxDepth, path.length);
+    rows.push({ code, rec, path });
+  }
+  return { rows, maxDepth };
+}
+
+function renderReportMode() {
+  const includeQuestions = document.getElementById("report-include-questions").checked;
+  const includeYoy = document.getElementById("report-include-yoy").checked;
+  const { rows, maxDepth } = buildReportRows();
+  const levelHeaders = Array.from({ length: maxDepth }, (_, i) => `레벨${i + 1}`);
+
+  const headCells = [
+    ...levelHeaders,
+    "부서코드", "부서장명", "부서장ID", "대상인원", "응답인원", "응답률",
+  ];
+  for (const area of AREA_DEFS) {
+    headCells.push(area.key);
+    if (includeYoy) headCells.push(`${area.key} 전년비`);
+  }
+  headCells.push(...ALL_ITEM_KEYS);
+  if (includeQuestions) {
+    for (const area of AREA_DEFS) for (const item of area.items) {
+      for (let i = 1; i <= item.qCount; i++) headCells.push(`${item.key}_${i}`);
+    }
+  }
+
+  const textColIdx = new Set([...levelHeaders.map((_, i) => i), levelHeaders.length + 1, levelHeaders.length + 2]); // level cols + 부서장명 + 부서장ID
+
+  const bodyRows = rows.map(({ rec, path }) => {
+    const cells = [];
+    for (let i = 0; i < maxDepth; i++) cells.push(path[i] ?? "");
+    cells.push(rec.dept_code, rec.leader_name || "-", rec.leader_id || "-", rec.target_count, rec.response_count, fmtPct(rec.response_rate));
+    for (const area of AREA_DEFS) {
+      cells.push(fmtScore(rec.area_scores?.[area.key]));
+      if (includeYoy) cells.push(fmtYoyPlain(rec.area_yoy?.[area.key]));
+    }
+    for (const item of ALL_ITEM_KEYS) cells.push(fmtScore(rec.item_scores?.[item]));
+    if (includeQuestions) {
+      for (const area of AREA_DEFS) for (const item of area.items) {
+        for (let i = 1; i <= item.qCount; i++) cells.push(fmtScore(rec.question_scores?.[`${item.key}_${i}`]));
+      }
+    }
+    return cells;
+  });
+
+  const thead = `<thead><tr>${headCells.map((h, i) => `<th class="${textColIdx.has(i) ? "text-col" : ""}">${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
+  const tbody = `<tbody>${bodyRows.map(cells =>
+    `<tr>${cells.map((c, i) => `<td class="${textColIdx.has(i) ? "text-col" : ""} ${i < maxDepth ? "level-cell" : ""}">${escapeHtml(String(c))}</td>`).join("")}</tr>`
+  ).join("")}</tbody>`;
+
+  document.getElementById("report-table-wrap").innerHTML = `<table class="report-table" id="report-table">${thead}${tbody}</table>`;
+}
+
+function tableToTsv(tableEl) {
+  return Array.from(tableEl.rows).map(row =>
+    Array.from(row.cells).map(cell => cell.textContent.replace(/\s+/g, " ").trim()).join("\t")
+  ).join("\n");
+}
+
+async function copyReportTable() {
+  const table = document.getElementById("report-table");
+  const statusEl = document.getElementById("report-copy-status");
+  if (!table) return;
+  const html = `<table>${table.innerHTML}</table>`;
+  const text = tableToTsv(table);
+
+  const showStatus = (msg) => {
+    statusEl.textContent = msg;
+    setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ""; }, 4000);
+  };
+
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+      showStatus("복사되었습니다. 엑셀/워드에 Ctrl+V로 붙여넣으세요.");
+      return;
+    }
+  } catch (err) { /* fall through to the legacy selection-based copy below */ }
+
+  try {
+    const range = document.createRange();
+    range.selectNode(table);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const ok = document.execCommand("copy");
+    sel.removeAllRanges();
+    showStatus(ok ? "복사되었습니다. 엑셀/워드에 Ctrl+V로 붙여넣으세요." : "복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.");
+  } catch (err) {
+    showStatus("복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.");
+  }
+}
+
+/* =========================================================
    File I/O
    ========================================================= */
 function downloadJson(obj, filename) {
@@ -3304,14 +3459,26 @@ function setMode(mode) {
   state.mode = mode;
   document.getElementById("view-mode").hidden = mode !== "view";
   document.getElementById("admin-mode").hidden = mode !== "admin";
+  document.getElementById("report-mode").hidden = mode !== "report";
   document.getElementById("btn-mode-view").classList.toggle("active", mode === "view");
   document.getElementById("btn-mode-admin").classList.toggle("active", mode === "admin");
-  if (mode === "view") renderViewMode();
-  else renderAdminMode();
+  document.getElementById("btn-mode-report").classList.toggle("active", mode === "report");
+  renderCurrentMode();
+}
+
+function renderCurrentMode() {
+  if (state.mode === "view") renderViewMode();
+  else if (state.mode === "admin") renderAdminMode();
+  else renderReportMode();
 }
 
 document.getElementById("btn-mode-view").addEventListener("click", () => setMode("view"));
 document.getElementById("btn-mode-admin").addEventListener("click", () => setMode("admin"));
+document.getElementById("btn-mode-report").addEventListener("click", () => setMode("report"));
+
+document.getElementById("btn-copy-report").addEventListener("click", copyReportTable);
+document.getElementById("report-include-questions").addEventListener("change", renderReportMode);
+document.getElementById("report-include-yoy").addEventListener("change", renderReportMode);
 
 document.getElementById("view-tabs").addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
@@ -3329,7 +3496,7 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
     indexRecords();
     invalidateRollupCache();
     companyBetasCache = null;
-    if (state.mode === "view") renderViewMode(); else renderAdminMode();
+    renderCurrentMode();
   });
   e.target.value = "";
 });
