@@ -86,9 +86,13 @@
   }
   .file-controls {
     display: flex;
+    align-items: center;
     gap: 8px;
     flex-wrap: wrap;
   }
+  .load-status { font-size: 12px; font-weight: 600; }
+  .load-status.ok { color: #7be0ab; }
+  .load-status.error { color: #ff9d94; }
   .btn {
     border: 1px solid transparent;
     border-radius: 8px;
@@ -375,7 +379,8 @@
   </div>
   <div class="file-controls">
     <button class="btn ghost" id="btn-load-survey">부서 데이터 불러오기</button>
-    <input type="file" id="file-survey" accept="application/json">
+    <input type="file" id="file-survey" accept=".json,application/json">
+    <span id="survey-load-status" class="load-status"></span>
   </div>
 </header>
 
@@ -407,7 +412,7 @@
     <div class="admin-panel">
       <div class="admin-toolbar">
         <button class="btn ghost" id="btn-load-orgmap">이전 회차 불러오기</button>
-        <input type="file" id="file-orgmap" accept="application/json">
+        <input type="file" id="file-orgmap" accept=".json,application/json">
         <label>새 회차 이름</label>
         <input type="text" id="round-name-input" placeholder="예: 2026Q3">
         <button class="btn coral" id="btn-save-orgmap">현재 회차로 저장</button>
@@ -3501,6 +3506,7 @@ function readJsonFile(file, cb) {
       alert("JSON 파일을 읽는 중 오류가 발생했습니다: " + err.message);
     }
   };
+  reader.onerror = () => alert("파일을 읽지 못했습니다: " + (reader.error?.message || "알 수 없는 오류"));
   reader.readAsText(file, "utf-8");
 }
 
@@ -3580,12 +3586,21 @@ document.getElementById("btn-load-survey").addEventListener("click", () => docum
 document.getElementById("file-survey").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  const statusEl = document.getElementById("survey-load-status");
   readJsonFile(file, (json) => {
-    state.surveyData = Array.isArray(json) ? json : json.records || [];
+    const records = Array.isArray(json) ? json : json.records || [];
+    if (!records.length || !records[0]?.dept_code) {
+      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 (부서 배열이 비어있거나 dept_code 필드가 없음)`;
+      statusEl.className = "load-status error";
+      return;
+    }
+    state.surveyData = records;
     indexRecords();
     invalidateRollupCache();
     companyBetasCache = null;
     renderCurrentMode();
+    statusEl.textContent = `"${file.name}" 불러옴 (${records.length}개 부서)`;
+    statusEl.className = "load-status ok";
   });
   e.target.value = "";
 });
