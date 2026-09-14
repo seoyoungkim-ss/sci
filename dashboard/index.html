@@ -273,11 +273,91 @@
   }
   .root-dropzone.drop-target { border-color: var(--coral); color: var(--coral-dark); background: #fff8f7; }
 
+  /* ---- Analysis tabs ---- */
+  .tabs {
+    display: flex; gap: 4px; border-bottom: 2px solid var(--border); margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .tab-btn {
+    border: none; background: none; padding: 9px 14px; font-size: 13px; font-weight: 600;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
+  }
+  .tab-btn:hover { color: var(--navy-800); }
+  .tab-btn.active { color: var(--coral-dark); border-bottom-color: var(--coral); }
+  .tab-panel-title { font-size: 15px; font-weight: 800; color: var(--navy-900); margin: 4px 0 4px; }
+  .tab-panel-desc { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.6; }
+  .note-box {
+    background: var(--card); border: 1px dashed var(--border); border-radius: var(--radius);
+    padding: 24px; text-align: center; color: var(--muted); font-size: 13px;
+  }
+  .note-box.warning { border-color: var(--negative); color: var(--coral-dark); background: #fff8f7; }
+
+  /* confidence badges */
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .badge.trusted { background: #e3f5ec; color: var(--positive); }
+  .badge.caution { background: var(--gold-light); color: #8a6a1a; }
+  .badge.warning { background: #fde3e0; color: var(--negative); }
+
+  /* horizontal bar chart (key driver / rankings) */
+  .bar-chart { display: flex; flex-direction: column; gap: 8px; }
+  .bar-row { display: grid; grid-template-columns: 90px 1fr 60px; align-items: center; gap: 10px; font-size: 12.5px; }
+  .bar-row .bar-label { color: var(--navy-800); font-weight: 600; text-align: right; }
+  .bar-track { position: relative; height: 16px; background: var(--navy-100); border-radius: 4px; overflow: hidden; }
+  .bar-track .bar-fill { position: absolute; top: 0; bottom: 0; background: var(--coral); }
+  .bar-track .bar-fill.negative { background: var(--navy-600); }
+  .bar-track .bar-zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
+  .bar-row .bar-value { font-weight: 700; color: var(--navy-900); }
+
+  /* generic data table */
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.data-table th, table.data-table td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--border); }
+  table.data-table th:first-child, table.data-table td:first-child { text-align: left; }
+  table.data-table th:nth-child(2), table.data-table td:nth-child(2) { text-align: left; }
+  table.data-table th { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; }
+  table.data-table tr.selected-row { background: var(--navy-100); }
+  table.data-table tr.outlier-row td { color: var(--coral-dark); }
+
+  .chip { display: inline-block; font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: var(--navy-100); color: var(--navy-800); margin: 2px 3px 2px 0; }
+  .chip.risk { background: #fde3e0; color: var(--negative); }
+
+  /* scatter plot */
+  .scatter-wrap { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .scatter-wrap svg { width: 100%; height: auto; display: block; }
+  .scatter-caption { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  /* min-max range track (org variance) */
+  .range-block { margin-bottom: 18px; }
+  .range-block .range-title { font-size: 12.5px; font-weight: 700; color: var(--navy-800); margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .range-track { position: relative; height: 34px; background: var(--navy-100); border-radius: 8px; margin: 0 8px; }
+  .range-band { position: absolute; top: 0; bottom: 0; background: rgba(255,111,94,0.25); border-radius: 8px; }
+  .range-mean { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--navy-900); transform: translateX(-1px); }
+  .range-dot {
+    position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--coral); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--coral-dark);
+    transform: translate(-50%, -50%); cursor: default;
+  }
+  .range-dot.highlight { background: var(--gold); box-shadow: 0 0 0 2px var(--navy-900); width: 14px; height: 14px; }
+  .variance-label { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; margin-bottom: 14px; }
+  .variance-label.even-good { background: #e3f5ec; color: var(--positive); }
+  .variance-label.even-bad { background: #fde3e0; color: var(--negative); }
+  .variance-label.spread { background: var(--gold-light); color: #8a6a1a; }
+  .stat-row { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat-row .stat-box { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; min-width: 90px; }
+  .stat-row .stat-box .v { font-size: 18px; font-weight: 800; color: var(--navy-900); }
+  .stat-row .stat-box .l { font-size: 11px; color: var(--muted); }
+
+  .subtoggle { display: flex; gap: 6px; margin-bottom: 14px; }
+  .subtoggle button {
+    border: 1px solid var(--border); background: var(--card); color: var(--navy-800);
+    padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .subtoggle button.active { background: var(--navy-900); color: #fff; border-color: var(--navy-900); }
+
   @media (max-width: 900px) {
     #view-mode, #admin-mode { flex-direction: column; }
     .sidebar { width: 100%; position: static; max-height: none; }
     .area-grid { grid-template-columns: 1fr; }
     .item-grid { grid-template-columns: repeat(2, 1fr); }
+    .bar-row { grid-template-columns: 70px 1fr 50px; }
   }
 </style>
 </head>
@@ -305,7 +385,16 @@
     </aside>
     <div class="content">
       <div class="breadcrumb" id="breadcrumb"></div>
-      <div id="dept-panel"></div>
+      <div id="dept-header-slot"></div>
+      <div class="tabs" id="view-tabs">
+        <button class="tab-btn" data-tab="overview">부서 현황</button>
+        <button class="tab-btn" data-tab="driver">핵심동인분석</button>
+        <button class="tab-btn" data-tab="ranking">랭킹·이상치</button>
+        <button class="tab-btn" data-tab="confidence">응답신뢰도</button>
+        <button class="tab-btn" data-tab="leadership">리더십비교</button>
+        <button class="tab-btn" data-tab="variance">조직편차</button>
+      </div>
+      <div id="tab-content"></div>
     </div>
   </div>
 
@@ -362,6 +451,22 @@ const AREA_DEFS = [
 const NO_DATA_MARKER = "-";
 
 /* =========================================================
+   Analysis constants — tune here.
+   ========================================================= */
+const FINAL_SATISFACTION_ITEM = "회사만족"; // key-driver regression target (column Z item)
+const DRIVER_ITEMS = AREA_DEFS.flatMap(a => a.items.map(i => i.key)).filter(k => k !== FINAL_SATISFACTION_ITEM);
+const ANALYSIS = {
+  MIN_RESPONSES: 5,                          // below this, a dept is excluded from regression/variance/leadership stats ("표본 부족")
+  MIN_LEAF_SAMPLE_FOR_REGRESSION: DRIVER_ITEMS.length + 5, // need comfortably more observations than predictors
+  RESPONSE_RATE_TRUSTED: 0.7,                // >= : 신뢰
+  RESPONSE_RATE_CAUTION: 0.5,                // >= : 주의, below: 경고
+  OUTLIER_Z: 2,                              // |z| >= this -> statistical outlier
+  RISK_BOTTOM_PERCENTILE: 0.10,              // bottom 10% within sibling group -> risk flag
+  MIN_GROUP_SIZE_FOR_STATS: 3,               // need at least this many siblings to compute percentile/avg meaningfully
+  VARIANCE_LOW_STDDEV: 5,                    // below this stddev among children -> "고르게" (evenly) good/bad
+};
+
+/* =========================================================
    Embedded dummy data (generated by scripts/generate_dummy_data.py).
    Replace at runtime via the file pickers once real data is
    exported from Excel / a real org map has been drawn.
@@ -396,164 +501,14 @@ const DUMMY_SURVEY_DATA = [
     "question_scores": {}
   },
   {
-    "dept_level": 2,
-    "dept_name": "영업본부",
-    "dept_code": "H200",
-    "target_count": 0,
-    "response_count": 0,
-    "response_rate": 0.0,
-    "leader_id": "E28289",
-    "leader_name": "이시우",
-    "area_scores": {},
-    "area_yoy": {},
-    "item_scores": {},
-    "question_scores": {}
-  },
-  {
-    "dept_level": 2,
-    "dept_name": "지원본부",
-    "dept_code": "H300",
-    "target_count": 0,
-    "response_count": 0,
-    "response_rate": 0.0,
-    "leader_id": "E21395",
-    "leader_name": "조민준",
-    "area_scores": {},
-    "area_yoy": {},
-    "item_scores": {},
-    "question_scores": {}
-  },
-  {
-    "dept_level": 2,
-    "dept_name": "감사본부",
-    "dept_code": "H400",
-    "target_count": 8,
-    "response_count": 5,
-    "response_rate": 0.625,
-    "leader_id": "E28726",
-    "leader_name": "정지훈",
-    "area_scores": {
-      "즐거운일": 71.3,
-      "함께하는동료": 74.0,
-      "자랑스러운회사": 75.4
-    },
-    "area_yoy": {
-      "즐거운일": 3.7,
-      "함께하는동료": -3.4,
-      "자랑스러운회사": -2.2
-    },
-    "item_scores": {
-      "몰입": 73.0,
-      "효율": 74.6,
-      "성장": 76.7,
-      "직무만족": 64.0,
-      "협력": 83.1,
-      "존중": 71.2,
-      "성과": 85.4,
-      "부서만족": 83.4,
-      "신뢰": 83.0,
-      "소통": 85.7,
-      "공정": 71.0,
-      "회사만족": 75.8
-    },
-    "question_scores": {
-      "몰입_1": 73.2,
-      "몰입_2": 70.2,
-      "몰입_3": 68.9,
-      "효율_1": 74.4,
-      "효율_2": 76.4,
-      "효율_3": 71.6,
-      "성장_1": 81.1,
-      "성장_2": 79.1,
-      "성장_3": 68.1,
-      "직무만족_1": 64.8,
-      "협력_1": 85.6,
-      "협력_2": 65.9,
-      "협력_3": 90.5,
-      "존중_1": 60.3,
-      "존중_2": 74.5,
-      "존중_3": 74.1,
-      "성과_1": 82.7,
-      "성과_2": 76.7,
-      "성과_3": 93.1,
-      "부서만족_1": 83.6,
-      "신뢰_1": 91.2,
-      "신뢰_2": 78.9,
-      "신뢰_3": 84.0,
-      "소통_1": 96.2,
-      "소통_2": 89.5,
-      "소통_3": 87.8,
-      "공정_1": 77.6,
-      "공정_2": 67.0,
-      "공정_3": 70.2,
-      "회사만족_1": 82.2
-    }
-  },
-  {
     "dept_level": 3,
     "dept_name": "개발실",
     "dept_code": "R110",
     "target_count": 0,
     "response_count": 0,
     "response_rate": 0.0,
-    "leader_id": "E42325",
-    "leader_name": "정채원",
-    "area_scores": {},
-    "area_yoy": {},
-    "item_scores": {},
-    "question_scores": {}
-  },
-  {
-    "dept_level": 3,
-    "dept_name": "디자인실",
-    "dept_code": "R120",
-    "target_count": 0,
-    "response_count": 0,
-    "response_rate": 0.0,
-    "leader_id": "E66155",
-    "leader_name": "조수아",
-    "area_scores": {},
-    "area_yoy": {},
-    "item_scores": {},
-    "question_scores": {}
-  },
-  {
-    "dept_level": 3,
-    "dept_name": "국내영업실",
-    "dept_code": "R210",
-    "target_count": 0,
-    "response_count": 0,
-    "response_rate": 0.0,
-    "leader_id": "E38746",
-    "leader_name": "박시우",
-    "area_scores": {},
-    "area_yoy": {},
-    "item_scores": {},
-    "question_scores": {}
-  },
-  {
-    "dept_level": 3,
-    "dept_name": "해외영업실",
-    "dept_code": "R220",
-    "target_count": 0,
-    "response_count": 0,
-    "response_rate": 0.0,
-    "leader_id": "E74686",
-    "leader_name": "이민준",
-    "area_scores": {},
-    "area_yoy": {},
-    "item_scores": {},
-    "question_scores": {}
-  },
-  {
-    "dept_level": 3,
-    "dept_name": "경영지원실",
-    "dept_code": "R310",
-    "target_count": 0,
-    "response_count": 0,
-    "response_rate": 0.0,
-    "leader_id": "E24371",
-    "leader_name": "박지훈",
+    "leader_id": "E28289",
+    "leader_name": "이시우",
     "area_scores": {},
     "area_yoy": {},
     "item_scores": {},
@@ -566,78 +521,356 @@ const DUMMY_SURVEY_DATA = [
     "target_count": 0,
     "response_count": 0,
     "response_rate": 0.0,
-    "leader_id": "E99192",
-    "leader_name": "조채원",
+    "leader_id": "E21395",
+    "leader_name": "조민준",
     "area_scores": {},
     "area_yoy": {},
     "item_scores": {},
     "question_scores": {}
   },
   {
+    "dept_level": 5,
+    "dept_name": "플랫폼파트",
+    "dept_code": "P1111",
+    "target_count": 12,
+    "response_count": 8,
+    "response_rate": 0.667,
+    "leader_id": "E51245",
+    "leader_name": "최지우",
+    "area_scores": {
+      "즐거운일": 72.6,
+      "함께하는동료": 81.4,
+      "자랑스러운회사": 75.8
+    },
+    "area_yoy": {
+      "즐거운일": 3.1,
+      "함께하는동료": -4.3,
+      "자랑스러운회사": 0.7
+    },
+    "item_scores": {
+      "몰입": 72.8,
+      "효율": 75.8,
+      "성장": 70.6,
+      "직무만족": 71.3,
+      "협력": 87.7,
+      "존중": 84.6,
+      "성과": 83.4,
+      "부서만족": 70.0,
+      "신뢰": 72.0,
+      "소통": 71.7,
+      "공정": 84.2,
+      "회사만족": 75.2
+    },
+    "question_scores": {
+      "몰입_1": 66.8,
+      "몰입_2": 68.2,
+      "몰입_3": 74.3,
+      "효율_1": 72.3,
+      "효율_2": 71.5,
+      "효율_3": 78.1,
+      "성장_1": 67.8,
+      "성장_2": 66.5,
+      "성장_3": 74.5,
+      "직무만족_1": 73.1,
+      "협력_1": 97.3,
+      "협력_2": 92.1,
+      "협력_3": 90.1,
+      "존중_1": 80.9,
+      "존중_2": 85.4,
+      "존중_3": 86.7,
+      "성과_1": 66.2,
+      "성과_2": 90.8,
+      "성과_3": 73.9,
+      "부서만족_1": 73.3,
+      "신뢰_1": 79.1,
+      "신뢰_2": 69.3,
+      "신뢰_3": 63.3,
+      "소통_1": 66.1,
+      "소통_2": 71.9,
+      "소통_3": 78.4,
+      "공정_1": 80.1,
+      "공정_2": 85.2,
+      "공정_3": 89.4,
+      "회사만족_1": 73.9
+    }
+  },
+  {
+    "dept_level": 5,
+    "dept_name": "데이터파트",
+    "dept_code": "P1112",
+    "target_count": 13,
+    "response_count": 12,
+    "response_rate": 0.923,
+    "leader_id": "E26483",
+    "leader_name": "박지우",
+    "area_scores": {
+      "즐거운일": 79.5,
+      "함께하는동료": 69.6,
+      "자랑스러운회사": 75.9
+    },
+    "area_yoy": {
+      "즐거운일": -4.2,
+      "함께하는동료": 3.2,
+      "자랑스러운회사": 0.3
+    },
+    "item_scores": {
+      "몰입": 74.8,
+      "효율": 82.5,
+      "성장": 85.4,
+      "직무만족": 75.3,
+      "협력": 57.6,
+      "존중": 74.0,
+      "성과": 76.1,
+      "부서만족": 70.6,
+      "신뢰": 75.0,
+      "소통": 78.9,
+      "공정": 74.3,
+      "회사만족": 75.4
+    },
+    "question_scores": {
+      "몰입_1": 72.4,
+      "몰입_2": 67.6,
+      "몰입_3": 78.3,
+      "효율_1": 82.4,
+      "효율_2": 72.4,
+      "효율_3": 82.9,
+      "성장_1": 88.3,
+      "성장_2": 82.0,
+      "성장_3": 78.1,
+      "직무만족_1": 71.5,
+      "협력_1": 52.9,
+      "협력_2": 56.3,
+      "협력_3": 54.9,
+      "존중_1": 63.7,
+      "존중_2": 71.3,
+      "존중_3": 78.2,
+      "성과_1": 76.3,
+      "성과_2": 73.1,
+      "성과_3": 60.4,
+      "부서만족_1": 70.5,
+      "신뢰_1": 69.0,
+      "신뢰_2": 76.8,
+      "신뢰_3": 80.5,
+      "소통_1": 75.0,
+      "소통_2": 86.0,
+      "소통_3": 74.9,
+      "공정_1": 78.0,
+      "공정_2": 85.1,
+      "공정_3": 73.3,
+      "회사만족_1": 78.4
+    }
+  },
+  {
     "dept_level": 4,
     "dept_name": "프론트팀",
     "dept_code": "T112",
-    "target_count": 15,
-    "response_count": 12,
-    "response_rate": 0.8,
-    "leader_id": "E92719",
-    "leader_name": "김하은",
+    "target_count": 19,
+    "response_count": 13,
+    "response_rate": 0.684,
+    "leader_id": "E63269",
+    "leader_name": "윤지우",
     "area_scores": {
-      "즐거운일": 76.1,
-      "함께하는동료": 68.3,
-      "자랑스러운회사": 69.9
+      "즐거운일": 79.5,
+      "함께하는동료": 77.7,
+      "자랑스러운회사": 87.1
     },
     "area_yoy": {
-      "즐거운일": -3.9,
-      "함께하는동료": 2.5,
-      "자랑스러운회사": -1.6
+      "즐거운일": -4.9,
+      "함께하는동료": "-",
+      "자랑스러운회사": -2.6
     },
     "item_scores": {
-      "몰입": 78.5,
-      "효율": 84.1,
-      "성장": 79.3,
-      "직무만족": 93.4,
-      "협력": 75.7,
-      "존중": 80.1,
-      "성과": 84.8,
-      "부서만족": 81.5,
-      "신뢰": 63.1,
-      "소통": 73.4,
-      "공정": 72.6,
-      "회사만족": 72.9
+      "몰입": 82.2,
+      "효율": 72.4,
+      "성장": 81.4,
+      "직무만족": 82.0,
+      "협력": 73.5,
+      "존중": 78.7,
+      "성과": 78.1,
+      "부서만족": 80.5,
+      "신뢰": 87.4,
+      "소통": 86.4,
+      "공정": 88.4,
+      "회사만족": 86.1
     },
     "question_scores": {
-      "몰입_1": 78.9,
-      "몰입_2": 76.8,
-      "몰입_3": 69.1,
-      "효율_1": 77.0,
-      "효율_2": 90.7,
-      "효율_3": 89.3,
-      "성장_1": 79.1,
-      "성장_2": 76.8,
-      "성장_3": 81.8,
-      "직무만족_1": 87.1,
-      "협력_1": 75.9,
-      "협력_2": 64.3,
-      "협력_3": 88.9,
-      "존중_1": 84.5,
-      "존중_2": 77.9,
-      "존중_3": 79.1,
-      "성과_1": 69.6,
-      "성과_2": 81.8,
-      "성과_3": 84.2,
-      "부서만족_1": 80.3,
-      "신뢰_1": 53.5,
-      "신뢰_2": 72.2,
-      "신뢰_3": 58.8,
-      "소통_1": 67.5,
-      "소통_2": 70.7,
-      "소통_3": 68.3,
-      "공정_1": 74.0,
-      "공정_2": 73.7,
-      "공정_3": 73.1,
-      "회사만족_1": 72.5
+      "몰입_1": 73.0,
+      "몰입_2": 80.8,
+      "몰입_3": 76.3,
+      "효율_1": 81.6,
+      "효율_2": 68.1,
+      "효율_3": 73.8,
+      "성장_1": 82.4,
+      "성장_2": 80.8,
+      "성장_3": 81.0,
+      "직무만족_1": 82.8,
+      "협력_1": 79.8,
+      "협력_2": 72.3,
+      "협력_3": 80.3,
+      "존중_1": 66.5,
+      "존중_2": 74.7,
+      "존중_3": 76.6,
+      "성과_1": 79.6,
+      "성과_2": 75.1,
+      "성과_3": 73.4,
+      "부서만족_1": 79.0,
+      "신뢰_1": 85.7,
+      "신뢰_2": 85.9,
+      "신뢰_3": 76.7,
+      "소통_1": 93.3,
+      "소통_2": 88.8,
+      "소통_3": 89.3,
+      "공정_1": 86.7,
+      "공정_2": 92.6,
+      "공정_3": 77.4,
+      "회사만족_1": 89.5
     }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "플랫폼팀",
+    "dept_code": "T113",
+    "target_count": 13,
+    "response_count": 12,
+    "response_rate": 0.923,
+    "leader_id": "E79329",
+    "leader_name": "김시우",
+    "area_scores": {
+      "즐거운일": 86.3,
+      "함께하는동료": 72.8,
+      "자랑스러운회사": 67.0
+    },
+    "area_yoy": {
+      "즐거운일": -0.6,
+      "함께하는동료": -2.0,
+      "자랑스러운회사": 3.1
+    },
+    "item_scores": {
+      "몰입": 93.0,
+      "효율": 89.4,
+      "성장": 91.4,
+      "직무만족": 71.3,
+      "협력": 77.1,
+      "존중": 71.1,
+      "성과": 73.9,
+      "부서만족": 69.3,
+      "신뢰": 66.3,
+      "소통": 72.1,
+      "공정": 59.1,
+      "회사만족": 70.6
+    },
+    "question_scores": {
+      "몰입_1": 88.3,
+      "몰입_2": 91.0,
+      "몰입_3": 98.0,
+      "효율_1": 80.8,
+      "효율_2": 85.5,
+      "효율_3": 89.7,
+      "성장_1": 94.9,
+      "성장_2": 96.2,
+      "성장_3": 93.3,
+      "직무만족_1": 73.3,
+      "협력_1": 79.6,
+      "협력_2": 78.4,
+      "협력_3": 75.3,
+      "존중_1": 66.4,
+      "존중_2": 78.4,
+      "존중_3": 68.3,
+      "성과_1": 74.5,
+      "성과_2": 69.6,
+      "성과_3": 67.4,
+      "부서만족_1": 78.2,
+      "신뢰_1": 69.5,
+      "신뢰_2": 62.3,
+      "신뢰_3": 61.0,
+      "소통_1": 71.8,
+      "소통_2": 66.5,
+      "소통_3": 66.8,
+      "공정_1": 57.4,
+      "공정_2": 62.8,
+      "공정_3": 63.2,
+      "회사만족_1": 71.9
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "QA팀",
+    "dept_code": "T114",
+    "target_count": 12,
+    "response_count": 12,
+    "response_rate": 1.0,
+    "leader_id": "E15075",
+    "leader_name": "윤하은",
+    "area_scores": {
+      "즐거운일": 74.1,
+      "함께하는동료": 85.6,
+      "자랑스러운회사": 76.0
+    },
+    "area_yoy": {
+      "즐거운일": 2.4,
+      "함께하는동료": -3.4,
+      "자랑스러운회사": -1.2
+    },
+    "item_scores": {
+      "몰입": 73.1,
+      "효율": 65.1,
+      "성장": 80.1,
+      "직무만족": 78.2,
+      "협력": 75.6,
+      "존중": 88.1,
+      "성과": 84.7,
+      "부서만족": 93.9,
+      "신뢰": 72.4,
+      "소통": 77.0,
+      "공정": 78.0,
+      "회사만족": 76.7
+    },
+    "question_scores": {
+      "몰입_1": 69.6,
+      "몰입_2": 72.3,
+      "몰입_3": 77.1,
+      "효율_1": 54.2,
+      "효율_2": 60.5,
+      "효율_3": 64.9,
+      "성장_1": 82.8,
+      "성장_2": 81.0,
+      "성장_3": 78.5,
+      "직무만족_1": 90.5,
+      "협력_1": 79.0,
+      "협력_2": 72.9,
+      "협력_3": 74.5,
+      "존중_1": 84.9,
+      "존중_2": 93.7,
+      "존중_3": 89.4,
+      "성과_1": 85.4,
+      "성과_2": 75.5,
+      "성과_3": 95.2,
+      "부서만족_1": 95.3,
+      "신뢰_1": 67.5,
+      "신뢰_2": 61.0,
+      "신뢰_3": 67.9,
+      "소통_1": 63.3,
+      "소통_2": 77.3,
+      "소통_3": 80.6,
+      "공정_1": 83.5,
+      "공정_2": 83.9,
+      "공정_3": 90.3,
+      "회사만족_1": 72.7
+    }
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "디자인실",
+    "dept_code": "R120",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E36158",
+    "leader_name": "윤수아",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
   },
   {
     "dept_level": 4,
@@ -646,525 +879,1443 @@ const DUMMY_SURVEY_DATA = [
     "target_count": 20,
     "response_count": 19,
     "response_rate": 0.95,
-    "leader_id": "E34356",
-    "leader_name": "이채원",
+    "leader_id": "E32241",
+    "leader_name": "이도윤",
     "area_scores": {
-      "즐거운일": 83.8,
-      "함께하는동료": 67.0,
-      "자랑스러운회사": 79.1
+      "즐거운일": 83.7,
+      "함께하는동료": 71.0,
+      "자랑스러운회사": 82.3
     },
     "area_yoy": {
-      "즐거운일": -0.3,
-      "함께하는동료": 3.1,
-      "자랑스러운회사": -4.0
+      "즐거운일": 1.1,
+      "함께하는동료": -0.6,
+      "자랑스러운회사": 0.1
     },
     "item_scores": {
-      "몰입": 93.3,
-      "효율": 81.7,
-      "성장": 91.6,
-      "직무만족": 85.1,
-      "협력": 69.8,
-      "존중": 73.1,
-      "성과": 72.1,
-      "부서만족": 77.6,
-      "신뢰": 66.8,
-      "소통": 67.3,
-      "공정": 71.8,
-      "회사만족": 69.8
+      "몰입": 84.3,
+      "효율": 81.4,
+      "성장": 88.0,
+      "직무만족": 81.2,
+      "협력": 74.4,
+      "존중": 63.2,
+      "성과": 75.7,
+      "부서만족": 70.5,
+      "신뢰": 83.0,
+      "소통": 79.7,
+      "공정": 86.2,
+      "회사만족": 80.2
     },
     "question_scores": {
-      "몰입_1": 87.3,
-      "몰입_2": 96.4,
-      "몰입_3": 92.1,
-      "효율_1": 86.7,
-      "효율_2": 85.2,
-      "효율_3": 75.3,
-      "성장_1": 94.0,
-      "성장_2": 97.7,
-      "성장_3": 87.3,
-      "직무만족_1": 90.9,
-      "협력_1": 68.0,
-      "협력_2": 69.2,
-      "협력_3": 81.2,
-      "존중_1": 83.5,
-      "존중_2": 67.9,
-      "존중_3": 76.6,
-      "성과_1": 70.4,
-      "성과_2": 73.3,
-      "성과_3": 59.5,
-      "부서만족_1": 79.0,
-      "신뢰_1": 85.8,
-      "신뢰_2": 61.6,
-      "신뢰_3": 57.8,
-      "소통_1": 62.7,
-      "소통_2": 82.4,
-      "소통_3": 60.7,
-      "공정_1": 79.2,
-      "공정_2": 74.6,
-      "공정_3": 60.1,
-      "회사만족_1": 72.2
+      "몰입_1": 86.5,
+      "몰입_2": 85.1,
+      "몰입_3": 78.8,
+      "효율_1": 71.0,
+      "효율_2": 80.7,
+      "효율_3": 82.6,
+      "성장_1": 95.9,
+      "성장_2": 89.7,
+      "성장_3": 87.8,
+      "직무만족_1": 89.9,
+      "협력_1": 74.1,
+      "협력_2": 77.5,
+      "협력_3": 72.1,
+      "존중_1": 66.0,
+      "존중_2": 66.4,
+      "존중_3": 54.6,
+      "성과_1": 71.7,
+      "성과_2": 62.4,
+      "성과_3": 81.8,
+      "부서만족_1": 64.3,
+      "신뢰_1": 78.8,
+      "신뢰_2": 80.3,
+      "신뢰_3": 78.4,
+      "소통_1": 78.4,
+      "소통_2": 76.7,
+      "소통_3": 74.7,
+      "공정_1": 93.1,
+      "공정_2": 76.8,
+      "공정_3": 92.5,
+      "회사만족_1": 82.8
     }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "비주얼팀",
+    "dept_code": "T122",
+    "target_count": 14,
+    "response_count": 12,
+    "response_rate": 0.857,
+    "leader_id": "E64377",
+    "leader_name": "조수아",
+    "area_scores": {
+      "즐거운일": 80.6,
+      "함께하는동료": 67.4,
+      "자랑스러운회사": 87.0
+    },
+    "area_yoy": {
+      "즐거운일": "-",
+      "함께하는동료": -1.2,
+      "자랑스러운회사": -2.9
+    },
+    "item_scores": {
+      "몰입": 74.9,
+      "효율": 77.7,
+      "성장": 80.0,
+      "직무만족": 89.6,
+      "협력": 73.6,
+      "존중": 59.1,
+      "성과": 63.3,
+      "부서만족": 73.6,
+      "신뢰": 91.0,
+      "소통": 86.7,
+      "공정": 87.3,
+      "회사만족": 83.0
+    },
+    "question_scores": {
+      "몰입_1": 85.0,
+      "몰입_2": 76.0,
+      "몰입_3": 76.4,
+      "효율_1": 71.1,
+      "효율_2": 65.7,
+      "효율_3": 81.2,
+      "성장_1": 74.2,
+      "성장_2": 77.3,
+      "성장_3": 82.0,
+      "직무만족_1": 82.2,
+      "협력_1": 69.5,
+      "협력_2": 76.7,
+      "협력_3": 64.9,
+      "존중_1": 54.4,
+      "존중_2": 61.4,
+      "존중_3": 61.3,
+      "성과_1": 61.8,
+      "성과_2": 59.2,
+      "성과_3": 72.5,
+      "부서만족_1": 62.0,
+      "신뢰_1": 87.4,
+      "신뢰_2": 97.4,
+      "신뢰_3": 98.0,
+      "소통_1": 75.2,
+      "소통_2": 84.9,
+      "소통_3": 97.0,
+      "공정_1": 93.7,
+      "공정_2": 86.3,
+      "공정_3": 83.0,
+      "회사만족_1": 90.3
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "리서치팀",
+    "dept_code": "T123",
+    "target_count": 12,
+    "response_count": 10,
+    "response_rate": 0.833,
+    "leader_id": "E43586",
+    "leader_name": "강지훈",
+    "area_scores": {
+      "즐거운일": 69.4,
+      "함께하는동료": 86.0,
+      "자랑스러운회사": 77.4
+    },
+    "area_yoy": {
+      "즐거운일": -2.6,
+      "함께하는동료": -3.9,
+      "자랑스러운회사": -0.3
+    },
+    "item_scores": {
+      "몰입": 72.3,
+      "효율": 73.0,
+      "성장": 64.0,
+      "직무만족": 68.3,
+      "협력": 79.4,
+      "존중": 94.1,
+      "성과": 90.5,
+      "부서만족": 80.2,
+      "신뢰": 77.4,
+      "소통": 70.3,
+      "공정": 85.0,
+      "회사만족": 76.8
+    },
+    "question_scores": {
+      "몰입_1": 71.9,
+      "몰입_2": 78.0,
+      "몰입_3": 66.9,
+      "효율_1": 71.2,
+      "효율_2": 63.3,
+      "효율_3": 81.1,
+      "성장_1": 61.7,
+      "성장_2": 67.9,
+      "성장_3": 51.8,
+      "직무만족_1": 75.1,
+      "협력_1": 70.0,
+      "협력_2": 77.5,
+      "협력_3": 68.1,
+      "존중_1": 93.2,
+      "존중_2": 98.0,
+      "존중_3": 89.7,
+      "성과_1": 93.7,
+      "성과_2": 93.0,
+      "성과_3": 87.7,
+      "부서만족_1": 86.0,
+      "신뢰_1": 74.1,
+      "신뢰_2": 83.4,
+      "신뢰_3": 75.5,
+      "소통_1": 72.2,
+      "소통_2": 84.3,
+      "소통_3": 75.1,
+      "공정_1": 91.3,
+      "공정_2": 86.5,
+      "공정_3": 85.4,
+      "회사만족_1": 84.4
+    }
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "영업본부",
+    "dept_code": "H200",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E89415",
+    "leader_name": "이지훈",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "국내영업실",
+    "dept_code": "R210",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E50768",
+    "leader_name": "이채원",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
   },
   {
     "dept_level": 4,
     "dept_name": "1팀",
     "dept_code": "T211",
-    "target_count": 18,
+    "target_count": 16,
     "response_count": 16,
-    "response_rate": 0.889,
-    "leader_id": "E29536",
-    "leader_name": "김수아",
+    "response_rate": 1.0,
+    "leader_id": "E50001",
+    "leader_name": "한지원",
     "area_scores": {
-      "즐거운일": 72.3,
-      "함께하는동료": 70.5,
-      "자랑스러운회사": 91.2
+      "즐거운일": 84.0,
+      "함께하는동료": 85.8,
+      "자랑스러운회사": 70.6
     },
     "area_yoy": {
-      "즐거운일": -0.8,
-      "함께하는동료": 0.2,
-      "자랑스러운회사": -3.0
+      "즐거운일": -0.9,
+      "함께하는동료": -2.6,
+      "자랑스러운회사": 2.1
     },
     "item_scores": {
-      "몰입": 74.8,
-      "효율": 71.3,
-      "성장": 79.8,
-      "직무만족": 79.2,
-      "협력": 71.6,
-      "존중": 80.8,
-      "성과": 75.6,
-      "부서만족": 62.3,
-      "신뢰": 80.8,
-      "소통": 93.0,
-      "공정": 85.4,
-      "회사만족": 87.2
+      "몰입": 85.2,
+      "효율": 78.7,
+      "성장": 86.0,
+      "직무만족": 85.9,
+      "협력": 81.7,
+      "존중": 86.1,
+      "성과": 90.4,
+      "부서만족": 85.1,
+      "신뢰": 65.8,
+      "소통": 69.8,
+      "공정": 72.3,
+      "회사만족": 74.6
     },
     "question_scores": {
-      "몰입_1": 80.8,
-      "몰입_2": 72.4,
-      "몰입_3": 70.3,
-      "효율_1": 69.0,
-      "효율_2": 50.4,
-      "효율_3": 76.9,
-      "성장_1": 81.6,
-      "성장_2": 78.5,
-      "성장_3": 93.7,
-      "직무만족_1": 75.2,
-      "협력_1": 63.5,
-      "협력_2": 58.1,
-      "협력_3": 60.2,
-      "존중_1": 81.3,
-      "존중_2": 78.1,
-      "존중_3": 89.2,
-      "성과_1": 77.8,
-      "성과_2": 81.6,
-      "성과_3": 80.3,
-      "부서만족_1": 56.5,
-      "신뢰_1": 77.3,
-      "신뢰_2": 67.8,
-      "신뢰_3": 81.7,
-      "소통_1": 96.5,
-      "소통_2": 92.9,
-      "소통_3": 93.5,
-      "공정_1": 81.9,
-      "공정_2": 85.0,
-      "공정_3": 77.8,
-      "회사만족_1": 87.3
+      "몰입_1": 92.8,
+      "몰입_2": 87.4,
+      "몰입_3": 81.3,
+      "효율_1": 87.3,
+      "효율_2": 82.4,
+      "효율_3": 68.6,
+      "성장_1": 87.9,
+      "성장_2": 84.8,
+      "성장_3": 84.1,
+      "직무만족_1": 86.4,
+      "협력_1": 84.0,
+      "협력_2": 86.9,
+      "협력_3": 77.5,
+      "존중_1": 92.6,
+      "존중_2": 81.2,
+      "존중_3": 79.4,
+      "성과_1": 83.8,
+      "성과_2": 94.1,
+      "성과_3": 83.3,
+      "부서만족_1": 98.0,
+      "신뢰_1": 68.8,
+      "신뢰_2": 57.7,
+      "신뢰_3": 62.0,
+      "소통_1": 70.0,
+      "소통_2": 64.2,
+      "소통_3": 70.2,
+      "공정_1": 80.2,
+      "공정_2": 77.9,
+      "공정_3": 67.1,
+      "회사만족_1": 74.3
     }
   },
   {
     "dept_level": 4,
     "dept_name": "2팀",
     "dept_code": "T212",
-    "target_count": 22,
-    "response_count": 19,
-    "response_rate": 0.864,
-    "leader_id": "E97900",
-    "leader_name": "최수아",
+    "target_count": 18,
+    "response_count": 13,
+    "response_rate": 0.722,
+    "leader_id": "E50001",
+    "leader_name": "한지원",
     "area_scores": {
-      "즐거운일": 86.4,
-      "함께하는동료": 64.5,
-      "자랑스러운회사": 78.9
+      "즐거운일": 77.4,
+      "함께하는동료": 74.3,
+      "자랑스러운회사": 78.0
     },
     "area_yoy": {
-      "즐거운일": 1.7,
-      "함께하는동료": 0.6,
+      "즐거운일": -2.7,
+      "함께하는동료": -0.5,
+      "자랑스러운회사": 3.6
+    },
+    "item_scores": {
+      "몰입": 76.5,
+      "효율": 83.0,
+      "성장": 70.5,
+      "직무만족": 79.5,
+      "협력": 73.8,
+      "존중": 77.7,
+      "성과": 73.7,
+      "부서만족": 72.1,
+      "신뢰": 79.8,
+      "소통": 80.6,
+      "공정": 72.9,
+      "회사만족": 78.9
+    },
+    "question_scores": {
+      "몰입_1": 75.3,
+      "몰입_2": 76.4,
+      "몰입_3": 71.1,
+      "효율_1": 87.5,
+      "효율_2": 85.8,
+      "효율_3": 85.7,
+      "성장_1": 68.2,
+      "성장_2": 72.2,
+      "성장_3": 74.3,
+      "직무만족_1": 63.3,
+      "협력_1": 76.5,
+      "협력_2": 75.3,
+      "협력_3": 77.8,
+      "존중_1": 78.4,
+      "존중_2": 75.2,
+      "존중_3": 93.7,
+      "성과_1": 70.8,
+      "성과_2": 78.4,
+      "성과_3": 68.6,
+      "부서만족_1": 69.1,
+      "신뢰_1": 81.6,
+      "신뢰_2": 86.2,
+      "신뢰_3": 77.3,
+      "소통_1": 82.0,
+      "소통_2": 79.2,
+      "소통_3": 79.2,
+      "공정_1": 70.9,
+      "공정_2": 75.9,
+      "공정_3": 72.8,
+      "회사만족_1": 73.5
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "3팀",
+    "dept_code": "T213",
+    "target_count": 20,
+    "response_count": 13,
+    "response_rate": 0.65,
+    "leader_id": "E71605",
+    "leader_name": "강예준",
+    "area_scores": {
+      "즐거운일": 84.1,
+      "함께하는동료": 72.0,
+      "자랑스러운회사": 78.7
+    },
+    "area_yoy": {
+      "즐거운일": -2.2,
+      "함께하는동료": -0.6,
       "자랑스러운회사": 4.7
     },
     "item_scores": {
-      "몰입": 79.8,
-      "효율": 81.7,
-      "성장": 71.9,
-      "직무만족": 81.2,
-      "협력": 69.5,
-      "존중": 79.3,
-      "성과": 67.8,
-      "부서만족": 71.1,
-      "신뢰": 79.3,
-      "소통": 75.9,
-      "공정": 77.8,
-      "회사만족": 76.9
+      "몰입": 88.0,
+      "효율": 78.0,
+      "성장": 83.5,
+      "직무만족": 87.0,
+      "협력": 73.2,
+      "존중": 69.2,
+      "성과": 77.3,
+      "부서만족": 68.3,
+      "신뢰": 74.2,
+      "소통": 80.5,
+      "공정": 80.3,
+      "회사만족": 79.9
     },
     "question_scores": {
-      "몰입_1": 83.7,
-      "몰입_2": 77.8,
-      "몰입_3": 85.4,
-      "효율_1": 78.5,
-      "효율_2": 83.7,
-      "효율_3": 91.0,
-      "성장_1": 67.2,
-      "성장_2": 63.3,
-      "성장_3": 71.9,
-      "직무만족_1": 80.0,
-      "협력_1": 73.7,
-      "협력_2": 82.3,
-      "협력_3": 63.0,
-      "존중_1": 80.8,
-      "존중_2": 88.0,
-      "존중_3": 75.4,
-      "성과_1": 68.6,
-      "성과_2": 62.3,
-      "성과_3": 58.8,
-      "부서만족_1": 70.4,
-      "신뢰_1": 78.7,
-      "신뢰_2": 87.2,
-      "신뢰_3": 81.0,
-      "소통_1": 69.9,
-      "소통_2": 84.6,
-      "소통_3": 60.0,
-      "공정_1": 80.9,
-      "공정_2": 75.5,
-      "공정_3": 84.0,
-      "회사만족_1": 80.1
+      "몰입_1": 90.5,
+      "몰입_2": 88.5,
+      "몰입_3": 95.6,
+      "효율_1": 83.0,
+      "효율_2": 76.5,
+      "효율_3": 78.3,
+      "성장_1": 95.1,
+      "성장_2": 87.4,
+      "성장_3": 85.4,
+      "직무만족_1": 79.3,
+      "협력_1": 76.0,
+      "협력_2": 73.7,
+      "협력_3": 76.6,
+      "존중_1": 70.8,
+      "존중_2": 71.3,
+      "존중_3": 61.4,
+      "성과_1": 74.2,
+      "성과_2": 72.3,
+      "성과_3": 78.3,
+      "부서만족_1": 75.7,
+      "신뢰_1": 66.9,
+      "신뢰_2": 73.4,
+      "신뢰_3": 66.1,
+      "소통_1": 89.4,
+      "소통_2": 85.6,
+      "소통_3": 74.4,
+      "공정_1": 69.2,
+      "공정_2": 71.3,
+      "공정_3": 75.6,
+      "회사만족_1": 84.2
     }
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "해외영업실",
+    "dept_code": "R220",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E53687",
+    "leader_name": "강서연",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
   },
   {
     "dept_level": 4,
     "dept_name": "아시아팀",
     "dept_code": "T221",
-    "target_count": 28,
-    "response_count": 19,
-    "response_rate": 0.679,
-    "leader_id": "E83259",
-    "leader_name": "강지우",
+    "target_count": 22,
+    "response_count": 17,
+    "response_rate": 0.773,
+    "leader_id": "E29476",
+    "leader_name": "윤시우",
     "area_scores": {
-      "즐거운일": 75.6,
-      "함께하는동료": 78.3,
-      "자랑스러운회사": 69.1
+      "즐거운일": 80.6,
+      "함께하는동료": 78.6,
+      "자랑스러운회사": 85.7
     },
     "area_yoy": {
-      "즐거운일": -1.9,
-      "함께하는동료": -1.0,
+      "즐거운일": -2.2,
+      "함께하는동료": 0.9,
+      "자랑스러운회사": -0.1
+    },
+    "item_scores": {
+      "몰입": 79.1,
+      "효율": 80.7,
+      "성장": 79.5,
+      "직무만족": 83.1,
+      "협력": 79.0,
+      "존중": 74.7,
+      "성과": 87.2,
+      "부서만족": 73.6,
+      "신뢰": 84.6,
+      "소통": 80.2,
+      "공정": 92.6,
+      "회사만족": 85.5
+    },
+    "question_scores": {
+      "몰입_1": 77.1,
+      "몰입_2": 77.0,
+      "몰입_3": 84.0,
+      "효율_1": 84.8,
+      "효율_2": 89.5,
+      "효율_3": 80.0,
+      "성장_1": 81.5,
+      "성장_2": 73.0,
+      "성장_3": 87.2,
+      "직무만족_1": 79.1,
+      "협력_1": 76.2,
+      "협력_2": 78.0,
+      "협력_3": 76.1,
+      "존중_1": 71.9,
+      "존중_2": 78.8,
+      "존중_3": 81.1,
+      "성과_1": 97.5,
+      "성과_2": 92.9,
+      "성과_3": 83.7,
+      "부서만족_1": 67.5,
+      "신뢰_1": 84.3,
+      "신뢰_2": 93.1,
+      "신뢰_3": 70.1,
+      "소통_1": 78.3,
+      "소통_2": 86.5,
+      "소통_3": 76.8,
+      "공정_1": 89.0,
+      "공정_2": 94.1,
+      "공정_3": 86.6,
+      "회사만족_1": 83.6
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "미주팀",
+    "dept_code": "T222",
+    "target_count": 17,
+    "response_count": 13,
+    "response_rate": 0.765,
+    "leader_id": "E79621",
+    "leader_name": "조채원",
+    "area_scores": {
+      "즐거운일": 77.9,
+      "함께하는동료": 80.9,
+      "자랑스러운회사": 73.7
+    },
+    "area_yoy": {
+      "즐거운일": "-",
+      "함께하는동료": -2.1,
+      "자랑스러운회사": -3.5
+    },
+    "item_scores": {
+      "몰입": 80.5,
+      "효율": 89.2,
+      "성장": 73.3,
+      "직무만족": 68.7,
+      "협력": 85.6,
+      "존중": 74.5,
+      "성과": 78.6,
+      "부서만족": 84.8,
+      "신뢰": 74.0,
+      "소통": 66.0,
+      "공정": 82.4,
+      "회사만족": 72.2
+    },
+    "question_scores": {
+      "몰입_1": 89.1,
+      "몰입_2": 76.6,
+      "몰입_3": 78.6,
+      "효율_1": 91.9,
+      "효율_2": 86.2,
+      "효율_3": 78.7,
+      "성장_1": 63.8,
+      "성장_2": 80.3,
+      "성장_3": 72.5,
+      "직무만족_1": 68.6,
+      "협력_1": 81.0,
+      "협력_2": 79.1,
+      "협력_3": 84.5,
+      "존중_1": 79.2,
+      "존중_2": 78.3,
+      "존중_3": 80.1,
+      "성과_1": 86.4,
+      "성과_2": 71.7,
+      "성과_3": 69.1,
+      "부서만족_1": 80.3,
+      "신뢰_1": 64.1,
+      "신뢰_2": 75.1,
+      "신뢰_3": 72.8,
+      "소통_1": 56.1,
+      "소통_2": 75.9,
+      "소통_3": 65.8,
+      "공정_1": 87.3,
+      "공정_2": 86.9,
+      "공정_3": 77.7,
+      "회사만족_1": 64.1
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "유럽팀",
+    "dept_code": "T223",
+    "target_count": 15,
+    "response_count": 14,
+    "response_rate": 0.933,
+    "leader_id": "E80701",
+    "leader_name": "강시우",
+    "area_scores": {
+      "즐거운일": 71.8,
+      "함께하는동료": 65.4,
+      "자랑스러운회사": 81.8
+    },
+    "area_yoy": {
+      "즐거운일": -4.1,
+      "함께하는동료": 2.5,
       "자랑스러운회사": -3.7
     },
     "item_scores": {
-      "몰입": 87.6,
-      "효율": 79.6,
-      "성장": 78.8,
-      "직무만족": 88.3,
-      "협력": 77.1,
-      "존중": 77.2,
-      "성과": 71.0,
-      "부서만족": 71.7,
-      "신뢰": 72.1,
-      "소통": 76.6,
-      "공정": 76.3,
-      "회사만족": 76.3
+      "몰입": 73.0,
+      "효율": 69.4,
+      "성장": 75.8,
+      "직무만족": 69.1,
+      "협력": 73.9,
+      "존중": 56.2,
+      "성과": 69.9,
+      "부서만족": 61.4,
+      "신뢰": 86.6,
+      "소통": 81.1,
+      "공정": 80.6,
+      "회사만족": 78.7
     },
     "question_scores": {
-      "몰입_1": 84.3,
-      "몰입_2": 94.4,
-      "몰입_3": 82.8,
-      "효율_1": 79.5,
-      "효율_2": 78.1,
-      "효율_3": 85.8,
-      "성장_1": 73.3,
-      "성장_2": 74.9,
-      "성장_3": 80.3,
-      "직무만족_1": 82.1,
-      "협력_1": 80.8,
-      "협력_2": 73.5,
-      "협력_3": 73.1,
-      "존중_1": 68.2,
-      "존중_2": 77.8,
-      "존중_3": 81.1,
-      "성과_1": 77.8,
-      "성과_2": 72.4,
-      "성과_3": 69.1,
-      "부서만족_1": 68.8,
-      "신뢰_1": 72.3,
-      "신뢰_2": 71.7,
-      "신뢰_3": 71.6,
-      "소통_1": 73.8,
-      "소통_2": 73.3,
-      "소통_3": 78.3,
-      "공정_1": 76.1,
-      "공정_2": 76.4,
-      "공정_3": 88.0,
-      "회사만족_1": 67.9
+      "몰입_1": 86.2,
+      "몰입_2": 77.2,
+      "몰입_3": 78.2,
+      "효율_1": 70.2,
+      "효율_2": 73.7,
+      "효율_3": 57.2,
+      "성장_1": 81.2,
+      "성장_2": 71.3,
+      "성장_3": 82.4,
+      "직무만족_1": 71.2,
+      "협력_1": 79.5,
+      "협력_2": 69.5,
+      "협력_3": 74.4,
+      "존중_1": 47.7,
+      "존중_2": 51.6,
+      "존중_3": 72.1,
+      "성과_1": 77.6,
+      "성과_2": 66.0,
+      "성과_3": 60.8,
+      "부서만족_1": 57.0,
+      "신뢰_1": 97.1,
+      "신뢰_2": 82.2,
+      "신뢰_3": 83.1,
+      "소통_1": 74.9,
+      "소통_2": 79.5,
+      "소통_3": 72.4,
+      "공정_1": 71.2,
+      "공정_2": 77.5,
+      "공정_3": 76.5,
+      "회사만족_1": 80.6
     }
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "지원본부",
+    "dept_code": "H300",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E75771",
+    "leader_name": "정지훈",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "경영지원실",
+    "dept_code": "R310",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E43681",
+    "leader_name": "윤도윤",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
   },
   {
     "dept_level": 4,
     "dept_name": "인사팀",
     "dept_code": "T311",
-    "target_count": 22,
-    "response_count": 21,
-    "response_rate": 0.955,
-    "leader_id": "E46471",
-    "leader_name": "조도윤",
+    "target_count": 21,
+    "response_count": 20,
+    "response_rate": 0.952,
+    "leader_id": "E46160",
+    "leader_name": "최서연",
     "area_scores": {
-      "즐거운일": 83.6,
-      "함께하는동료": 77.3,
-      "자랑스러운회사": 89.0
+      "즐거운일": 81.9,
+      "함께하는동료": 72.3,
+      "자랑스러운회사": 74.9
     },
     "area_yoy": {
-      "즐거운일": 3.4,
-      "함께하는동료": 2.8,
-      "자랑스러운회사": -2.6
+      "즐거운일": -1.3,
+      "함께하는동료": 1.4,
+      "자랑스러운회사": "-"
     },
     "item_scores": {
-      "몰입": 81.2,
-      "효율": 91.6,
-      "성장": 88.0,
-      "직무만족": 88.6,
-      "협력": 60.7,
-      "존중": 76.6,
-      "성과": 73.1,
-      "부서만족": 76.7,
-      "신뢰": 93.3,
-      "소통": 79.6,
-      "공정": 83.8,
-      "회사만족": 90.2
+      "몰입": 87.3,
+      "효율": 84.8,
+      "성장": 75.4,
+      "직무만족": 80.0,
+      "협력": 68.4,
+      "존중": 74.9,
+      "성과": 75.6,
+      "부서만족": 70.4,
+      "신뢰": 75.8,
+      "소통": 76.8,
+      "공정": 71.6,
+      "회사만족": 75.4
     },
     "question_scores": {
-      "몰입_1": 80.2,
-      "몰입_2": 76.9,
-      "몰입_3": 74.7,
-      "효율_1": 95.0,
-      "효율_2": 96.4,
-      "효율_3": 94.0,
-      "성장_1": 84.7,
-      "성장_2": 93.9,
-      "성장_3": 98.0,
-      "직무만족_1": 90.4,
-      "협력_1": 66.4,
-      "협력_2": 55.3,
-      "협력_3": 46.5,
-      "존중_1": 66.9,
-      "존중_2": 84.7,
-      "존중_3": 80.4,
-      "성과_1": 77.0,
-      "성과_2": 60.9,
-      "성과_3": 68.3,
-      "부서만족_1": 69.9,
-      "신뢰_1": 91.4,
-      "신뢰_2": 82.0,
-      "신뢰_3": 98.0,
-      "소통_1": 86.3,
-      "소통_2": 75.2,
-      "소통_3": 78.3,
-      "공정_1": 86.3,
-      "공정_2": 81.0,
-      "공정_3": 83.5,
-      "회사만족_1": 83.7
+      "몰입_1": 96.2,
+      "몰입_2": 84.5,
+      "몰입_3": 81.9,
+      "효율_1": 83.9,
+      "효율_2": 81.1,
+      "효율_3": 87.7,
+      "성장_1": 82.7,
+      "성장_2": 75.0,
+      "성장_3": 81.3,
+      "직무만족_1": 86.5,
+      "협력_1": 58.6,
+      "협력_2": 64.5,
+      "협력_3": 75.7,
+      "존중_1": 69.9,
+      "존중_2": 72.3,
+      "존중_3": 66.6,
+      "성과_1": 76.1,
+      "성과_2": 78.6,
+      "성과_3": 75.5,
+      "부서만족_1": 69.0,
+      "신뢰_1": 72.9,
+      "신뢰_2": 68.1,
+      "신뢰_3": 73.8,
+      "소통_1": 71.0,
+      "소통_2": 81.0,
+      "소통_3": 69.6,
+      "공정_1": 80.6,
+      "공정_2": 72.9,
+      "공정_3": 78.0,
+      "회사만족_1": 79.2
     }
   },
   {
     "dept_level": 4,
     "dept_name": "재무팀",
     "dept_code": "T312",
-    "target_count": 18,
-    "response_count": 15,
-    "response_rate": 0.833,
-    "leader_id": "E21359",
-    "leader_name": "정지우",
+    "target_count": 17,
+    "response_count": 12,
+    "response_rate": 0.706,
+    "leader_id": "E66387",
+    "leader_name": "이서연",
     "area_scores": {
-      "즐거운일": 90.0,
-      "함께하는동료": 69.3,
-      "자랑스러운회사": 88.5
+      "즐거운일": 68.3,
+      "함께하는동료": 82.3,
+      "자랑스러운회사": 89.2
     },
     "area_yoy": {
-      "즐거운일": -4.6,
-      "함께하는동료": "-",
-      "자랑스러운회사": 3.4
+      "즐거운일": 2.1,
+      "함께하는동료": 1.0,
+      "자랑스러운회사": 0.1
     },
     "item_scores": {
-      "몰입": 84.4,
-      "효율": 82.5,
-      "성장": 85.2,
-      "직무만족": 76.7,
-      "협력": 71.1,
-      "존중": 65.6,
-      "성과": 70.1,
-      "부서만족": 65.1,
-      "신뢰": 81.1,
-      "소통": 88.5,
-      "공정": 95.5,
-      "회사만족": 86.1
+      "몰입": 61.1,
+      "효율": 68.6,
+      "성장": 76.1,
+      "직무만족": 67.5,
+      "협력": 79.4,
+      "존중": 85.4,
+      "성과": 82.7,
+      "부서만족": 81.6,
+      "신뢰": 95.4,
+      "소통": 93.4,
+      "공정": 79.1,
+      "회사만족": 89.0
     },
     "question_scores": {
-      "몰입_1": 91.2,
-      "몰입_2": 95.4,
-      "몰입_3": 94.0,
-      "효율_1": 88.3,
+      "몰입_1": 76.7,
+      "몰입_2": 62.0,
+      "몰입_3": 57.1,
+      "효율_1": 65.9,
       "효율_2": 70.3,
-      "효율_3": 73.0,
-      "성장_1": 81.7,
-      "성장_2": 82.2,
-      "성장_3": 92.5,
-      "직무만족_1": 70.7,
-      "협력_1": 69.7,
-      "협력_2": 61.6,
-      "협력_3": 64.9,
-      "존중_1": 60.8,
-      "존중_2": 61.2,
-      "존중_3": 55.7,
-      "성과_1": 69.4,
-      "성과_2": 61.5,
-      "성과_3": 68.3,
-      "부서만족_1": 64.3,
-      "신뢰_1": 81.5,
-      "신뢰_2": 72.9,
-      "신뢰_3": 90.7,
-      "소통_1": 91.6,
-      "소통_2": 79.9,
-      "소통_3": 87.3,
-      "공정_1": 90.5,
-      "공정_2": 84.6,
-      "공정_3": 98.0,
-      "회사만족_1": 90.1
+      "효율_3": 64.6,
+      "성장_1": 68.3,
+      "성장_2": 73.2,
+      "성장_3": 93.1,
+      "직무만족_1": 64.8,
+      "협력_1": 77.0,
+      "협력_2": 72.7,
+      "협력_3": 87.6,
+      "존중_1": 85.9,
+      "존중_2": 89.8,
+      "존중_3": 89.9,
+      "성과_1": 85.2,
+      "성과_2": 77.5,
+      "성과_3": 88.8,
+      "부서만족_1": 89.8,
+      "신뢰_1": 90.6,
+      "신뢰_2": 92.7,
+      "신뢰_3": 98.0,
+      "소통_1": 93.3,
+      "소통_2": 90.8,
+      "소통_3": 94.7,
+      "공정_1": 83.6,
+      "공정_2": 77.6,
+      "공정_3": 82.2,
+      "회사만족_1": 93.0
     }
   },
   {
-    "dept_level": 5,
-    "dept_name": "플랫폼파트",
-    "dept_code": "P1111",
-    "target_count": 13,
-    "response_count": 12,
-    "response_rate": 0.923,
-    "leader_id": "E24953",
-    "leader_name": "이예준",
+    "dept_level": 4,
+    "dept_name": "총무팀",
+    "dept_code": "T313",
+    "target_count": 14,
+    "response_count": 5,
+    "response_rate": 0.357,
+    "leader_id": "E79531",
+    "leader_name": "최예준",
     "area_scores": {
-      "즐거운일": 75.9,
-      "함께하는동료": 81.5,
-      "자랑스러운회사": 71.0
+      "즐거운일": 70.4,
+      "함께하는동료": 77.5,
+      "자랑스러운회사": 75.0
     },
     "area_yoy": {
-      "즐거운일": -2.2,
-      "함께하는동료": 3.8,
+      "즐거운일": -1.0,
+      "함께하는동료": "-",
+      "자랑스러운회사": -4.7
+    },
+    "item_scores": {
+      "몰입": 66.0,
+      "효율": 71.6,
+      "성장": 76.8,
+      "직무만족": 67.3,
+      "협력": 79.0,
+      "존중": 77.6,
+      "성과": 79.4,
+      "부서만족": 74.1,
+      "신뢰": 76.6,
+      "소통": 72.8,
+      "공정": 74.0,
+      "회사만족": 76.6
+    },
+    "question_scores": {
+      "몰입_1": 67.8,
+      "몰입_2": 71.2,
+      "몰입_3": 69.6,
+      "효율_1": 74.1,
+      "효율_2": 73.6,
+      "효율_3": 70.6,
+      "성장_1": 78.3,
+      "성장_2": 76.0,
+      "성장_3": 65.9,
+      "직무만족_1": 63.3,
+      "협력_1": 82.9,
+      "협력_2": 73.9,
+      "협력_3": 70.4,
+      "존중_1": 62.1,
+      "존중_2": 73.1,
+      "존중_3": 74.3,
+      "성과_1": 87.9,
+      "성과_2": 79.9,
+      "성과_3": 82.2,
+      "부서만족_1": 81.6,
+      "신뢰_1": 65.8,
+      "신뢰_2": 87.5,
+      "신뢰_3": 74.8,
+      "소통_1": 71.7,
+      "소통_2": 83.0,
+      "소통_3": 67.9,
+      "공정_1": 82.5,
+      "공정_2": 72.0,
+      "공정_3": 79.1,
+      "회사만족_1": 76.9
+    }
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "법무실",
+    "dept_code": "R320",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E65028",
+    "leader_name": "윤수아",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "법무1팀",
+    "dept_code": "T321",
+    "target_count": 9,
+    "response_count": 7,
+    "response_rate": 0.778,
+    "leader_id": "E53655",
+    "leader_name": "박서연",
+    "area_scores": {
+      "즐거운일": 82.4,
+      "함께하는동료": 83.2,
+      "자랑스러운회사": 82.1
+    },
+    "area_yoy": {
+      "즐거운일": 0.9,
+      "함께하는동료": -1.0,
+      "자랑스러운회사": -1.6
+    },
+    "item_scores": {
+      "몰입": 81.9,
+      "효율": 77.6,
+      "성장": 88.5,
+      "직무만족": 81.6,
+      "협력": 82.2,
+      "존중": 80.5,
+      "성과": 75.3,
+      "부서만족": 94.9,
+      "신뢰": 86.9,
+      "소통": 78.6,
+      "공정": 80.1,
+      "회사만족": 82.8
+    },
+    "question_scores": {
+      "몰입_1": 83.0,
+      "몰입_2": 75.3,
+      "몰입_3": 75.8,
+      "효율_1": 71.7,
+      "효율_2": 73.1,
+      "효율_3": 79.3,
+      "성장_1": 92.7,
+      "성장_2": 86.6,
+      "성장_3": 97.3,
+      "직무만족_1": 80.0,
+      "협력_1": 81.8,
+      "협력_2": 80.9,
+      "협력_3": 86.1,
+      "존중_1": 85.8,
+      "존중_2": 90.4,
+      "존중_3": 81.0,
+      "성과_1": 81.7,
+      "성과_2": 63.9,
+      "성과_3": 75.3,
+      "부서만족_1": 98.0,
+      "신뢰_1": 88.5,
+      "신뢰_2": 92.0,
+      "신뢰_3": 80.9,
+      "소통_1": 72.6,
+      "소통_2": 79.5,
+      "소통_3": 79.4,
+      "공정_1": 72.2,
+      "공정_2": 86.7,
+      "공정_3": 68.4,
+      "회사만족_1": 86.9
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "법무2팀",
+    "dept_code": "T322",
+    "target_count": 5,
+    "response_count": 4,
+    "response_rate": 0.8,
+    "leader_id": "E57696",
+    "leader_name": "강도윤",
+    "area_scores": {
+      "즐거운일": 70.1,
+      "함께하는동료": 88.5,
+      "자랑스러운회사": 70.7
+    },
+    "area_yoy": {
+      "즐거운일": "-",
+      "함께하는동료": 4.9,
+      "자랑스러운회사": 1.1
+    },
+    "item_scores": {
+      "몰입": 73.8,
+      "효율": 74.1,
+      "성장": 66.6,
+      "직무만족": 65.8,
+      "협력": 86.4,
+      "존중": 86.5,
+      "성과": 87.9,
+      "부서만족": 93.0,
+      "신뢰": 63.2,
+      "소통": 75.4,
+      "공정": 70.0,
+      "회사만족": 74.1
+    },
+    "question_scores": {
+      "몰입_1": 71.1,
+      "몰입_2": 77.5,
+      "몰입_3": 76.6,
+      "효율_1": 82.4,
+      "효율_2": 87.2,
+      "효율_3": 80.8,
+      "성장_1": 68.3,
+      "성장_2": 58.6,
+      "성장_3": 62.3,
+      "직무만족_1": 52.0,
+      "협력_1": 85.5,
+      "협력_2": 80.1,
+      "협력_3": 88.9,
+      "존중_1": 78.8,
+      "존중_2": 85.1,
+      "존중_3": 88.4,
+      "성과_1": 89.2,
+      "성과_2": 85.9,
+      "성과_3": 96.3,
+      "부서만족_1": 97.3,
+      "신뢰_1": 56.0,
+      "신뢰_2": 63.1,
+      "신뢰_3": 61.5,
+      "소통_1": 73.7,
+      "소통_2": 69.8,
+      "소통_3": 71.1,
+      "공정_1": 73.4,
+      "공정_2": 78.9,
+      "공정_3": 55.5,
+      "회사만족_1": 77.0
+    }
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "마케팅본부",
+    "dept_code": "H400",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E60779",
+    "leader_name": "조수아",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "브랜드실",
+    "dept_code": "R410",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E98984",
+    "leader_name": "김수아",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "브랜드기획팀",
+    "dept_code": "T411",
+    "target_count": 10,
+    "response_count": 8,
+    "response_rate": 0.8,
+    "leader_id": "E35430",
+    "leader_name": "강채원",
+    "area_scores": {
+      "즐거운일": 82.9,
+      "함께하는동료": 82.1,
+      "자랑스러운회사": 74.1
+    },
+    "area_yoy": {
+      "즐거운일": 2.8,
+      "함께하는동료": -2.6,
+      "자랑스러운회사": 2.8
+    },
+    "item_scores": {
+      "몰입": 88.6,
+      "효율": 84.2,
+      "성장": 75.7,
+      "직무만족": 83.2,
+      "협력": 90.3,
+      "존중": 80.1,
+      "성과": 86.1,
+      "부서만족": 71.8,
+      "신뢰": 67.7,
+      "소통": 75.6,
+      "공정": 76.0,
+      "회사만족": 77.0
+    },
+    "question_scores": {
+      "몰입_1": 86.8,
+      "몰입_2": 90.0,
+      "몰입_3": 90.6,
+      "효율_1": 81.6,
+      "효율_2": 79.3,
+      "효율_3": 76.9,
+      "성장_1": 73.3,
+      "성장_2": 67.7,
+      "성장_3": 72.6,
+      "직무만족_1": 89.9,
+      "협력_1": 90.1,
+      "협력_2": 97.7,
+      "협력_3": 95.3,
+      "존중_1": 80.7,
+      "존중_2": 85.3,
+      "존중_3": 78.4,
+      "성과_1": 98.0,
+      "성과_2": 88.9,
+      "성과_3": 90.3,
+      "부서만족_1": 71.4,
+      "신뢰_1": 66.2,
+      "신뢰_2": 73.6,
+      "신뢰_3": 61.9,
+      "소통_1": 78.7,
+      "소통_2": 72.6,
+      "소통_3": 67.7,
+      "공정_1": 74.2,
+      "공정_2": 69.7,
+      "공정_3": 83.2,
+      "회사만족_1": 76.0
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "콘텐츠팀",
+    "dept_code": "T412",
+    "target_count": 15,
+    "response_count": 12,
+    "response_rate": 0.8,
+    "leader_id": "E77551",
+    "leader_name": "최지훈",
+    "area_scores": {
+      "즐거운일": 73.6,
+      "함께하는동료": 76.7,
+      "자랑스러운회사": 76.2
+    },
+    "area_yoy": {
+      "즐거운일": "-",
+      "함께하는동료": 1.0,
+      "자랑스러운회사": "-"
+    },
+    "item_scores": {
+      "몰입": 81.0,
+      "효율": 79.2,
+      "성장": 74.6,
+      "직무만족": 59.6,
+      "협력": 69.0,
+      "존중": 77.1,
+      "성과": 82.9,
+      "부서만족": 77.6,
+      "신뢰": 74.2,
+      "소통": 79.8,
+      "공정": 74.4,
+      "회사만족": 76.4
+    },
+    "question_scores": {
+      "몰입_1": 71.2,
+      "몰입_2": 83.9,
+      "몰입_3": 84.5,
+      "효율_1": 73.8,
+      "효율_2": 88.5,
+      "효율_3": 86.2,
+      "성장_1": 84.5,
+      "성장_2": 72.7,
+      "성장_3": 87.5,
+      "직무만족_1": 65.2,
+      "협력_1": 70.7,
+      "협력_2": 71.0,
+      "협력_3": 69.3,
+      "존중_1": 96.4,
+      "존중_2": 76.1,
+      "존중_3": 78.1,
+      "성과_1": 75.5,
+      "성과_2": 83.7,
+      "성과_3": 79.7,
+      "부서만족_1": 69.5,
+      "신뢰_1": 67.9,
+      "신뢰_2": 76.6,
+      "신뢰_3": 74.3,
+      "소통_1": 73.3,
+      "소통_2": 78.8,
+      "소통_3": 72.5,
+      "공정_1": 79.3,
+      "공정_2": 80.4,
+      "공정_3": 76.3,
+      "회사만족_1": 72.1
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "커뮤니케이션팀",
+    "dept_code": "T413",
+    "target_count": 10,
+    "response_count": 8,
+    "response_rate": 0.8,
+    "leader_id": "E20828",
+    "leader_name": "조서연",
+    "area_scores": {
+      "즐거운일": 85.9,
+      "함께하는동료": 75.7,
+      "자랑스러운회사": 76.7
+    },
+    "area_yoy": {
+      "즐거운일": 4.7,
+      "함께하는동료": -0.0,
       "자랑스러운회사": 0.2
     },
     "item_scores": {
-      "몰입": 77.3,
-      "효율": 77.9,
-      "성장": 79.1,
-      "직무만족": 82.8,
-      "협력": 80.0,
-      "존중": 87.8,
-      "성과": 80.2,
-      "부서만족": 78.5,
-      "신뢰": 70.0,
-      "소통": 72.3,
-      "공정": 65.2,
-      "회사만족": 79.1
+      "몰입": 93.3,
+      "효율": 86.7,
+      "성장": 85.2,
+      "직무만족": 78.3,
+      "협력": 74.6,
+      "존중": 79.3,
+      "성과": 74.5,
+      "부서만족": 74.4,
+      "신뢰": 78.2,
+      "소통": 74.4,
+      "공정": 78.0,
+      "회사만족": 76.3
     },
     "question_scores": {
-      "몰입_1": 77.6,
-      "몰입_2": 83.4,
-      "몰입_3": 73.1,
-      "효율_1": 76.3,
-      "효율_2": 71.5,
-      "효율_3": 82.9,
-      "성장_1": 79.5,
-      "성장_2": 88.0,
-      "성장_3": 73.9,
-      "직무만족_1": 90.4,
-      "협력_1": 75.1,
-      "협력_2": 81.5,
-      "협력_3": 81.2,
-      "존중_1": 87.1,
-      "존중_2": 73.1,
-      "존중_3": 86.4,
-      "성과_1": 78.9,
-      "성과_2": 88.1,
-      "성과_3": 80.7,
-      "부서만족_1": 81.0,
-      "신뢰_1": 67.0,
-      "신뢰_2": 78.9,
-      "신뢰_3": 71.3,
-      "소통_1": 68.5,
-      "소통_2": 86.2,
-      "소통_3": 65.8,
-      "공정_1": 70.1,
-      "공정_2": 65.6,
-      "공정_3": 59.8,
-      "회사만족_1": 78.9
+      "몰입_1": 98.0,
+      "몰입_2": 98.0,
+      "몰입_3": 96.3,
+      "효율_1": 86.1,
+      "효율_2": 81.5,
+      "효율_3": 91.0,
+      "성장_1": 84.7,
+      "성장_2": 95.7,
+      "성장_3": 86.3,
+      "직무만족_1": 69.9,
+      "협력_1": 69.2,
+      "협력_2": 81.8,
+      "협력_3": 76.7,
+      "존중_1": 88.6,
+      "존중_2": 70.3,
+      "존중_3": 81.3,
+      "성과_1": 72.5,
+      "성과_2": 75.6,
+      "성과_3": 68.0,
+      "부서만족_1": 75.5,
+      "신뢰_1": 75.3,
+      "신뢰_2": 85.7,
+      "신뢰_3": 77.7,
+      "소통_1": 70.5,
+      "소통_2": 67.9,
+      "소통_3": 82.6,
+      "공정_1": 80.7,
+      "공정_2": 69.5,
+      "공정_3": 87.3,
+      "회사만족_1": 67.8
     }
   },
   {
-    "dept_level": 5,
-    "dept_name": "데이터파트",
-    "dept_code": "P1112",
-    "target_count": 13,
+    "dept_level": 3,
+    "dept_name": "퍼포먼스실",
+    "dept_code": "R420",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E66440",
+    "leader_name": "박시우",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "퍼포먼스팀",
+    "dept_code": "T421",
+    "target_count": 12,
     "response_count": 9,
-    "response_rate": 0.692,
-    "leader_id": "E85392",
-    "leader_name": "김도윤",
+    "response_rate": 0.75,
+    "leader_id": "E18511",
+    "leader_name": "정도윤",
     "area_scores": {
-      "즐거운일": 88.5,
-      "함께하는동료": 65.9,
-      "자랑스러운회사": 69.7
+      "즐거운일": 69.7,
+      "함께하는동료": 78.7,
+      "자랑스러운회사": 72.9
     },
     "area_yoy": {
-      "즐거운일": -3.8,
-      "함께하는동료": 1.1,
-      "자랑스러운회사": -2.7
+      "즐거운일": "-",
+      "함께하는동료": 3.5,
+      "자랑스러운회사": -1.5
     },
     "item_scores": {
-      "몰입": 75.6,
-      "효율": 74.1,
-      "성장": 80.0,
-      "직무만족": 82.7,
-      "협력": 68.9,
-      "존중": 64.4,
-      "성과": 75.2,
-      "부서만족": 73.2,
-      "신뢰": 65.4,
-      "소통": 65.1,
-      "공정": 72.2,
-      "회사만족": 79.7
+      "몰입": 63.6,
+      "효율": 61.9,
+      "성장": 79.5,
+      "직무만족": 73.7,
+      "협력": 82.3,
+      "존중": 75.4,
+      "성과": 78.9,
+      "부서만족": 78.2,
+      "신뢰": 70.5,
+      "소통": 71.9,
+      "공정": 74.9,
+      "회사만족": 74.3
     },
     "question_scores": {
-      "몰입_1": 77.6,
-      "몰입_2": 87.2,
-      "몰입_3": 61.6,
-      "효율_1": 68.4,
-      "효율_2": 73.2,
-      "효율_3": 59.6,
-      "성장_1": 88.6,
-      "성장_2": 82.0,
-      "성장_3": 83.1,
-      "직무만족_1": 82.8,
-      "협력_1": 73.1,
-      "협력_2": 66.4,
-      "협력_3": 59.9,
-      "존중_1": 51.8,
-      "존중_2": 66.4,
-      "존중_3": 56.2,
-      "성과_1": 72.6,
-      "성과_2": 66.9,
-      "성과_3": 72.8,
-      "부서만족_1": 71.2,
-      "신뢰_1": 74.7,
-      "신뢰_2": 60.9,
-      "신뢰_3": 63.3,
-      "소통_1": 56.5,
-      "소통_2": 71.7,
-      "소통_3": 62.6,
-      "공정_1": 73.0,
-      "공정_2": 67.4,
-      "공정_3": 74.4,
-      "회사만족_1": 88.0
+      "몰입_1": 67.7,
+      "몰입_2": 62.5,
+      "몰입_3": 65.0,
+      "효율_1": 78.9,
+      "효율_2": 59.3,
+      "효율_3": 78.5,
+      "성장_1": 83.4,
+      "성장_2": 72.5,
+      "성장_3": 87.7,
+      "직무만족_1": 72.7,
+      "협력_1": 80.7,
+      "협력_2": 91.8,
+      "협력_3": 86.6,
+      "존중_1": 80.6,
+      "존중_2": 68.3,
+      "존중_3": 69.9,
+      "성과_1": 86.2,
+      "성과_2": 72.3,
+      "성과_3": 75.6,
+      "부서만족_1": 74.5,
+      "신뢰_1": 63.5,
+      "신뢰_2": 64.7,
+      "신뢰_3": 75.5,
+      "소통_1": 78.4,
+      "소통_2": 76.8,
+      "소통_3": 71.8,
+      "공정_1": 75.1,
+      "공정_2": 78.9,
+      "공정_3": 69.6,
+      "회사만족_1": 71.7
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "데이터마케팅팀",
+    "dept_code": "T422",
+    "target_count": 4,
+    "response_count": 4,
+    "response_rate": 1.0,
+    "leader_id": "E15958",
+    "leader_name": "정하은",
+    "area_scores": {
+      "즐거운일": 86.5,
+      "함께하는동료": 81.2,
+      "자랑스러운회사": 79.1
+    },
+    "area_yoy": {
+      "즐거운일": 3.4,
+      "함께하는동료": 3.3,
+      "자랑스러운회사": "-"
+    },
+    "item_scores": {
+      "몰입": 89.0,
+      "효율": 78.2,
+      "성장": 91.1,
+      "직무만족": 87.9,
+      "협력": 84.4,
+      "존중": 85.8,
+      "성과": 74.5,
+      "부서만족": 80.2,
+      "신뢰": 78.8,
+      "소통": 77.7,
+      "공정": 81.1,
+      "회사만족": 78.9
+    },
+    "question_scores": {
+      "몰입_1": 91.8,
+      "몰입_2": 95.8,
+      "몰입_3": 97.1,
+      "효율_1": 76.3,
+      "효율_2": 80.7,
+      "효율_3": 71.0,
+      "성장_1": 93.8,
+      "성장_2": 98.0,
+      "성장_3": 91.1,
+      "직무만족_1": 76.8,
+      "협력_1": 82.9,
+      "협력_2": 75.8,
+      "협력_3": 87.2,
+      "존중_1": 78.6,
+      "존중_2": 83.4,
+      "존중_3": 82.9,
+      "성과_1": 79.9,
+      "성과_2": 77.4,
+      "성과_3": 75.6,
+      "부서만족_1": 84.8,
+      "신뢰_1": 90.6,
+      "신뢰_2": 88.0,
+      "신뢰_3": 71.7,
+      "소통_1": 72.0,
+      "소통_2": 81.3,
+      "소통_3": 81.3,
+      "공정_1": 81.0,
+      "공정_2": 84.3,
+      "공정_3": 79.9,
+      "회사만족_1": 73.5
+    }
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "감사본부",
+    "dept_code": "H500",
+    "target_count": 12,
+    "response_count": 10,
+    "response_rate": 0.833,
+    "leader_id": "E35513",
+    "leader_name": "강시우",
+    "area_scores": {
+      "즐거운일": 81.7,
+      "함께하는동료": 76.8,
+      "자랑스러운회사": 81.8
+    },
+    "area_yoy": {
+      "즐거운일": 2.3,
+      "함께하는동료": -1.3,
+      "자랑스러운회사": 0.7
+    },
+    "item_scores": {
+      "몰입": 84.6,
+      "효율": 80.7,
+      "성장": 75.0,
+      "직무만족": 86.3,
+      "협력": 72.9,
+      "존중": 79.3,
+      "성과": 77.9,
+      "부서만족": 76.9,
+      "신뢰": 76.4,
+      "소통": 84.0,
+      "공정": 85.9,
+      "회사만족": 80.9
+    },
+    "question_scores": {
+      "몰입_1": 82.7,
+      "몰입_2": 87.7,
+      "몰입_3": 76.0,
+      "효율_1": 81.6,
+      "효율_2": 74.3,
+      "효율_3": 83.3,
+      "성장_1": 71.8,
+      "성장_2": 73.1,
+      "성장_3": 65.4,
+      "직무만족_1": 85.8,
+      "협력_1": 70.9,
+      "협력_2": 68.3,
+      "협력_3": 73.9,
+      "존중_1": 82.1,
+      "존중_2": 73.1,
+      "존중_3": 84.8,
+      "성과_1": 75.2,
+      "성과_2": 74.2,
+      "성과_3": 84.9,
+      "부서만족_1": 69.9,
+      "신뢰_1": 76.4,
+      "신뢰_2": 90.7,
+      "신뢰_3": 78.5,
+      "소통_1": 83.1,
+      "소통_2": 82.8,
+      "소통_3": 85.5,
+      "공정_1": 80.0,
+      "공정_2": 78.6,
+      "공정_3": 87.3,
+      "회사만족_1": 77.4
     }
   }
 ];
@@ -1174,24 +2325,43 @@ const DUMMY_ORG_MAP = {
   "map": {
     "C000": null,
     "H100": "C000",
-    "H200": "C000",
-    "H300": "C000",
-    "H400": "C000",
     "R110": "H100",
-    "R120": "H100",
-    "R210": "H200",
-    "R220": "H200",
-    "R310": "H300",
     "T111": "R110",
+    "P1111": "T111",
+    "P1112": "T111",
     "T112": "R110",
+    "T113": "R110",
+    "T114": "R110",
+    "R120": "H100",
     "T121": "R120",
+    "T122": "R120",
+    "T123": "R120",
+    "H200": "C000",
+    "R210": "H200",
     "T211": "R210",
     "T212": "R210",
+    "T213": "R210",
+    "R220": "H200",
     "T221": "R220",
+    "T222": "R220",
+    "T223": "R220",
+    "H300": "C000",
+    "R310": "H300",
     "T311": "R310",
     "T312": "R310",
-    "P1111": "T111",
-    "P1112": "T111"
+    "T313": "R310",
+    "R320": "H300",
+    "T321": "R320",
+    "T322": "R320",
+    "H400": "C000",
+    "R410": "H400",
+    "T411": "R410",
+    "T412": "R410",
+    "T413": "R410",
+    "R420": "H400",
+    "T421": "R420",
+    "T422": "R420",
+    "H500": "C000"
   }
 };
 
@@ -1206,6 +2376,7 @@ const state = {
   round: DUMMY_ORG_MAP.round,
   basedOn: DUMMY_ORG_MAP.based_on,
   selectedCode: null,
+  activeTab: "overview",
   expandedItems: new Set(),
   expandedTreeNodes: new Set(),
   dragCode: null,
@@ -1321,6 +2492,261 @@ function rollup(code) {
 }
 
 /* =========================================================
+   Basic statistics helpers
+   ========================================================= */
+function mean(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
+function stddev(arr) {
+  if (arr.length < 2) return 0;
+  const m = mean(arr);
+  return Math.sqrt(mean(arr.map(x => (x - m) ** 2)));
+}
+function quantile(sortedArr, q) {
+  if (!sortedArr.length) return null;
+  const pos = (sortedArr.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos);
+  if (lo === hi) return sortedArr[lo];
+  return sortedArr[lo] + (sortedArr[hi] - sortedArr[lo]) * (pos - lo);
+}
+function pearsonR(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return null;
+  const mx = mean(xs), my = mean(ys);
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx, dy = ys[i] - my;
+    sxy += dx * dy; sxx += dx * dx; syy += dy * dy;
+  }
+  if (sxx === 0 || syy === 0) return null;
+  return sxy / Math.sqrt(sxx * syy);
+}
+function linearRegression1D(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return null;
+  const mx = mean(xs), my = mean(ys);
+  let sxy = 0, sxx = 0;
+  for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; }
+  if (sxx === 0) return null;
+  const slope = sxy / sxx;
+  return { slope, intercept: my - slope * mx };
+}
+
+/* ---- small matrix library (only used for the key-driver regression) ---- */
+function transpose(m) { return m[0].map((_, j) => m.map(row => row[j])); }
+function matMul(a, b) {
+  const out = [];
+  for (let i = 0; i < a.length; i++) {
+    out.push(b[0].map((_, j) => a[i].reduce((s, v, k) => s + v * b[k][j], 0)));
+  }
+  return out;
+}
+function matVec(a, v) { return a.map(row => row.reduce((s, x, i) => s + x * v[i], 0)); }
+function invertMatrix(m) {
+  const n = m.length;
+  const aug = m.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
+  for (let col = 0; col < n; col++) {
+    let pivotRow = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(aug[r][col]) > Math.abs(aug[pivotRow][col])) pivotRow = r;
+    if (Math.abs(aug[pivotRow][col]) < 1e-10) return null; // singular
+    [aug[col], aug[pivotRow]] = [aug[pivotRow], aug[col]];
+    const pivot = aug[col][col];
+    for (let j = 0; j < 2 * n; j++) aug[col][j] /= pivot;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const factor = aug[r][col];
+      for (let j = 0; j < 2 * n; j++) aug[r][j] -= factor * aug[col][j];
+    }
+  }
+  return aug.map(row => row.slice(n));
+}
+function standardizeColumns(X) {
+  const n = X.length, p = X[0].length;
+  const means = [], stds = [];
+  for (let j = 0; j < p; j++) {
+    const col = X.map(row => row[j]);
+    means.push(mean(col));
+    stds.push(stddev(col) || 1);
+  }
+  return X.map(row => row.map((v, j) => (v - means[j]) / stds[j]));
+}
+function standardizeVector(v) {
+  const m = mean(v), sd = stddev(v) || 1;
+  return v.map(x => (x - m) / sd);
+}
+/** Standardized multiple-regression coefficients (beta) via OLS normal
+ * equations on z-scored X/y. Returns null if the sample is too small
+ * or the predictor matrix is singular (e.g. near-collinear items). */
+function standardizedRegressionBetas(X, y) {
+  if (X.length <= X[0].length) return null;
+  const Xz = standardizeColumns(X);
+  const yz = standardizeVector(y);
+  const Xt = transpose(Xz);
+  const XtXInv = invertMatrix(matMul(Xt, Xz));
+  if (!XtXInv) return null;
+  return matVec(XtXInv, matVec(Xt, yz));
+}
+
+/* =========================================================
+   Analysis data helpers
+   ========================================================= */
+function overallScore(rec) {
+  if (!rec) return null;
+  const vals = AREA_DEFS.map(a => rec.area_scores?.[a.key]).filter(v => typeof v === "number");
+  return vals.length ? mean(vals) : null;
+}
+/** Departments that actually ran the survey themselves (as opposed to
+ * pure org-tree rollup nodes with no direct respondents). */
+function surveyUnits() {
+  return state.surveyData.filter(r => r.target_count > 0);
+}
+/** Codes sharing the same parent as `code` (code included). Returns
+ * null for a root department (no meaningful sibling group). */
+function siblingGroup(code) {
+  const parent = state.orgMap[code];
+  if (!parent) return null;
+  return Object.keys(state.orgMap).filter(c => state.orgMap[c] === parent);
+}
+function confidenceLevel(rate) {
+  if (rate === null || rate === undefined) return "unknown";
+  if (rate >= ANALYSIS.RESPONSE_RATE_TRUSTED) return "trusted";
+  if (rate >= ANALYSIS.RESPONSE_RATE_CAUTION) return "caution";
+  return "warning";
+}
+const CONFIDENCE_LABEL = { trusted: "신뢰", caution: "주의", warning: "경고", unknown: "-" };
+function confidenceBadgeHtml(rate) {
+  const level = confidenceLevel(rate);
+  return `<span class="badge ${level}">${CONFIDENCE_LABEL[level]}</span>`;
+}
+
+let companyBetasCache = null;
+function computeCompanyBetas() {
+  if (companyBetasCache) return companyBetasCache;
+  const units = surveyUnits().filter(r => r.response_count >= ANALYSIS.MIN_RESPONSES);
+  if (units.length < ANALYSIS.MIN_LEAF_SAMPLE_FOR_REGRESSION) {
+    companyBetasCache = { ok: false, n: units.length, required: ANALYSIS.MIN_LEAF_SAMPLE_FOR_REGRESSION };
+    return companyBetasCache;
+  }
+  const X = units.map(r => DRIVER_ITEMS.map(k => r.item_scores[k]));
+  const y = units.map(r => r.item_scores[FINAL_SATISFACTION_ITEM]);
+  const beta = standardizedRegressionBetas(X, y);
+  if (!beta) {
+    companyBetasCache = { ok: false, n: units.length, reason: "singular" };
+    return companyBetasCache;
+  }
+  const betas = DRIVER_ITEMS.map((item, i) => ({ item, beta: beta[i] }))
+    .sort((a, b) => Math.abs(b.beta) - Math.abs(a.beta));
+  companyBetasCache = { ok: true, n: units.length, betas };
+  return companyBetasCache;
+}
+
+function evaluateRisk(code, groupCache) {
+  const group = siblingGroup(code);
+  if (!group || group.length < ANALYSIS.MIN_GROUP_SIZE_FOR_STATS) return null;
+  const rec = rollup(code);
+  if (!rec) return null;
+  const reasons = [];
+  for (const area of AREA_DEFS) {
+    const groupRecs = group.map(c => rollup(c)).filter(Boolean);
+    const scores = groupRecs.map(r => r.area_scores?.[area.key]).filter(v => typeof v === "number");
+    if (scores.length >= ANALYSIS.MIN_GROUP_SIZE_FOR_STATS) {
+      const sorted = [...scores].sort((a, b) => a - b);
+      const p10 = quantile(sorted, ANALYSIS.RISK_BOTTOM_PERCENTILE);
+      const myScore = rec.area_scores?.[area.key];
+      if (typeof myScore === "number" && myScore <= p10) reasons.push(`${area.key} 하위 10%`);
+    }
+    const yoys = groupRecs.map(r => r.area_yoy?.[area.key]).filter(v => typeof v === "number");
+    const myYoy = rec.area_yoy?.[area.key];
+    if (yoys.length >= ANALYSIS.MIN_GROUP_SIZE_FOR_STATS && typeof myYoy === "number" && myYoy < 0) {
+      const avgYoy = mean(yoys);
+      if (myYoy < avgYoy) reasons.push(`${area.key} 전년비 하락폭 그룹평균 초과`);
+    }
+  }
+  return reasons.length ? { code, name: rec.dept_name, reasons } : null;
+}
+function computeRiskList(scopeCode) {
+  const results = [];
+  const seen = new Set();
+  function visit(code) {
+    const kids = childrenByParent()[code] || [];
+    for (const child of kids) {
+      if (!seen.has(child)) {
+        seen.add(child);
+        const r = evaluateRisk(child, null);
+        if (r) results.push(r);
+      }
+      visit(child);
+    }
+  }
+  visit(scopeCode);
+  return results;
+}
+
+function computeLeaderStats() {
+  const units = surveyUnits();
+  const byLeader = {};
+  for (const u of units) {
+    if (!u.leader_id) continue;
+    (byLeader[u.leader_id] = byLeader[u.leader_id] || { leader_id: u.leader_id, leader_name: u.leader_name, depts: [] }).depts.push(u);
+  }
+  const leaders = Object.values(byLeader).map(l => {
+    const totalTarget = l.depts.reduce((s, d) => s + d.target_count, 0);
+    const totalResponse = l.depts.reduce((s, d) => s + d.response_count, 0);
+    const overall = weightedAverage(l.depts.map(d => [overallScore(d), d.response_count]));
+    const areaScores = {};
+    for (const area of AREA_DEFS) areaScores[area.key] = weightedAverage(l.depts.map(d => [d.area_scores[area.key], d.response_count]));
+    return { ...l, deptCount: l.depts.length, totalTarget, totalResponse, overall, areaScores };
+  });
+  leaders.sort((a, b) => (b.overall ?? -Infinity) - (a.overall ?? -Infinity));
+  return leaders;
+}
+
+/* ---- tiny inline-SVG scatter plot (no chart library, single-file constraint) ---- */
+function renderScatterSVG({ points, xDomain, yDomain, width = 620, height = 300, highlightCode, trendLine }) {
+  const pad = { l: 46, r: 16, t: 12, b: 34 };
+  const plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
+  const xScale = v => pad.l + ((v - xDomain[0]) / (xDomain[1] - xDomain[0] || 1)) * plotW;
+  const yScale = v => pad.t + plotH - ((v - yDomain[0]) / (yDomain[1] - yDomain[0] || 1)) * plotH;
+
+  const dots = points.map(p => {
+    const isHi = p.code && p.code === highlightCode;
+    const r = isHi ? 6.5 : 4;
+    return `<circle cx="${xScale(p.x).toFixed(1)}" cy="${yScale(p.y).toFixed(1)}" r="${r}" fill="${p.color || "var(--coral)"}" stroke="${isHi ? "var(--navy-900)" : "#fff"}" stroke-width="${isHi ? 2 : 1}"><title>${escapeHtml(p.label || "")}</title></circle>`;
+  }).join("");
+
+  let trendSvg = "";
+  if (trendLine) {
+    const x1 = xDomain[0], x2 = xDomain[1];
+    const y1 = trendLine.slope * x1 + trendLine.intercept;
+    const y2 = trendLine.slope * x2 + trendLine.intercept;
+    trendSvg = `<line x1="${xScale(x1).toFixed(1)}" y1="${yScale(y1).toFixed(1)}" x2="${xScale(x2).toFixed(1)}" y2="${yScale(y2).toFixed(1)}" stroke="var(--navy-600)" stroke-width="1.5" stroke-dasharray="4 3" />`;
+  }
+
+  const axisLine = `<line x1="${pad.l}" y1="${pad.t + plotH}" x2="${pad.l + plotW}" y2="${pad.t + plotH}" stroke="var(--border)" />
+    <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t + plotH}" stroke="var(--border)" />`;
+  const xTicks = [xDomain[0], (xDomain[0] + xDomain[1]) / 2, xDomain[1]].map(v =>
+    `<text x="${xScale(v).toFixed(1)}" y="${pad.t + plotH + 18}" font-size="10" fill="var(--muted)" text-anchor="middle">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`
+  ).join("");
+  const yTicks = [yDomain[0], (yDomain[0] + yDomain[1]) / 2, yDomain[1]].map(v =>
+    `<text x="${pad.l - 8}" y="${(yScale(v) + 3).toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end">${v.toFixed(0)}</text>`
+  ).join("");
+
+  return `<svg viewBox="0 0 ${width} ${height}">${axisLine}${xTicks}${yTicks}${trendSvg}${dots}</svg>`;
+}
+
+function renderRangeTrack(values, highlightCode, trackMin = 40, trackMax = 100) {
+  const scaleX = v => Math.max(0, Math.min(100, ((v - trackMin) / (trackMax - trackMin)) * 100));
+  const nums = values.map(v => v.value);
+  const lo = Math.min(...nums), hi = Math.max(...nums), m = mean(nums);
+  const dots = values.map(v =>
+    `<div class="range-dot ${v.code === highlightCode ? "highlight" : ""}" style="left:${scaleX(v.value)}%" title="${escapeHtml(v.label)}: ${v.value.toFixed(1)}"></div>`
+  ).join("");
+  return `<div class="range-track">
+    <div class="range-band" style="left:${scaleX(lo)}%; width:${(scaleX(hi) - scaleX(lo)).toFixed(2)}%"></div>
+    <div class="range-mean" style="left:${scaleX(m)}%"></div>
+    ${dots}
+  </div>`;
+}
+
+/* =========================================================
    Rendering helpers
    ========================================================= */
 function fmtScore(v) {
@@ -1425,35 +2851,11 @@ function renderSidebarTree() {
   el.appendChild(ul);
 }
 
-function renderDeptPanel() {
-  const el = document.getElementById("dept-panel");
-  if (!state.selectedCode) { el.innerHTML = `<div class="no-data-note">좌측 조직도에서 부서를 선택하세요.</div>`; return; }
-
-  const data = rollup(state.selectedCode);
-  const rec = state.recordsByCode[state.selectedCode];
-  if (!data) {
-    el.innerHTML = `<div class="no-data-note">이 부서에는 아직 설문 데이터가 없습니다.</div>`;
-    return;
-  }
-
-  const levelLabel = rec ? `레벨 ${rec.dept_level}` : "";
-  const responsePct = data.target_count ? Math.min(100, (data.response_count / data.target_count) * 100) : 0;
-
-  let html = "";
-  html += `<div class="dept-header">
-    <div>
-      <div><span class="name">${escapeHtml(data.dept_name)}</span><span class="code">${escapeHtml(data.dept_code)}</span><span class="level-badge">${levelLabel}</span></div>
-      <div class="meta">부서장: ${escapeHtml(data.leader_name || "-")} ${data.leader_id ? `(${escapeHtml(data.leader_id)})` : ""}</div>
-      <div class="response-bar"><div style="width:${responsePct}%"></div></div>
-      <div class="meta">대상 ${data.target_count}명 / 응답 ${data.response_count}명</div>
-    </div>
-    <div class="stats">
-      <div class="stat"><div class="num">${fmtPct(data.response_rate)}</div><div class="label">응답률</div></div>
-    </div>
-  </div>`;
-
-  html += `<div class="section-title">영역별 점수</div>`;
-  html += `<div class="area-grid">`;
+/* =========================================================
+   Tab 0: 부서 현황 (area/item/question scores)
+   ========================================================= */
+function renderOverviewTab(container, data) {
+  let html = `<div class="section-title">영역별 점수</div><div class="area-grid">`;
   for (const area of AREA_DEFS) {
     html += `<div class="area-card">
       <div class="area-name">${escapeHtml(area.key)}</div>
@@ -1463,8 +2865,7 @@ function renderDeptPanel() {
   }
   html += `</div>`;
 
-  html += `<div class="section-title">항목별 점수 (클릭 시 문항 펼치기)</div>`;
-  html += `<div class="item-grid">`;
+  html += `<div class="section-title">항목별 점수 (클릭 시 문항 펼치기)</div><div class="item-grid">`;
   for (const area of AREA_DEFS) {
     for (const item of area.items) {
       const expanded = state.expandedItems.has(item.key);
@@ -1487,16 +2888,298 @@ function renderDeptPanel() {
   }
   html += `</div>`;
 
-  el.innerHTML = html;
-
-  el.querySelectorAll(".item-card").forEach(card => {
+  container.innerHTML = html;
+  container.querySelectorAll(".item-card").forEach(card => {
     card.addEventListener("click", () => {
       const key = card.dataset.item;
       if (state.expandedItems.has(key)) state.expandedItems.delete(key);
       else state.expandedItems.add(key);
-      renderDeptPanel();
+      renderTabContent();
     });
   });
+}
+
+/* =========================================================
+   Tab 1: 핵심동인분석 (key driver regression)
+   ========================================================= */
+function renderDriverTab(container, data) {
+  const result = computeCompanyBetas();
+  if (!result.ok) {
+    container.innerHTML = `<div class="tab-panel-desc">12개 항목 중 무엇이 "회사만족"에 가장 큰 영향을 주는지 표준화 회귀계수(베타)로 산출합니다.</div>
+      <div class="note-box warning">표본 부족으로 분석 제외 (전사 유효 부서 ${result.n}개 / 최소 ${result.required ?? "-"}개 필요)</div>`;
+    return;
+  }
+
+  const maxAbsBeta = Math.max(...result.betas.map(b => Math.abs(b.beta)), 0.001);
+  const barsHtml = result.betas.map(b => {
+    const pct = (Math.abs(b.beta) / maxAbsBeta) * 100;
+    return `<div class="bar-row">
+      <div class="bar-label">${escapeHtml(b.item)}</div>
+      <div class="bar-track"><div class="bar-fill ${b.beta < 0 ? "negative" : ""}" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="bar-value">${b.beta >= 0 ? "+" : ""}${b.beta.toFixed(3)}</div>
+    </div>`;
+  }).join("");
+
+  let html = `<div class="tab-panel-desc">전사 응답 데이터(유효 부서 ${result.n}개) 기준 표준화 회귀계수입니다. 절대값이 클수록 "회사만족"에 미치는 영향력이 큽니다.</div>
+    <div class="bar-chart">${barsHtml}</div>`;
+
+  const isRoot = !state.orgMap[state.selectedCode];
+  if (!isRoot) {
+    const companyAvg = rollup(rootCodes()[0])?.item_scores || {};
+    const rows = DRIVER_ITEMS.map(item => {
+      const beta = result.betas.find(b => b.item === item)?.beta ?? 0;
+      const deptScore = data.item_scores[item];
+      const avgScore = companyAvg[item];
+      const gap = (typeof deptScore === "number" && typeof avgScore === "number") ? deptScore - avgScore : null;
+      const priority = (beta > 0 && gap !== null) ? beta * Math.max(0, -gap) : 0;
+      return { item, beta, deptScore, avgScore, gap, priority };
+    }).sort((a, b) => b.priority - a.priority);
+
+    html += `<div class="section-title">"${escapeHtml(data.dept_name)}" 전사 대비 우선 개선 항목</div>
+      <div class="tab-panel-desc">전사 기준 영향력(베타)이 크면서 전사 평균보다 낮은 항목일수록 상단에 표시됩니다. 표본이 적은 부서는 자체 회귀분석 대신 이 방식으로 취약 항목을 판단합니다.</div>
+      <table class="data-table">
+        <thead><tr><th>항목</th><th>전사 베타</th><th>부서 점수</th><th>전사 평균</th><th>차이</th></tr></thead>
+        <tbody>${rows.map(r => `<tr class="${r.priority > 0 ? "outlier-row" : ""}">
+          <td>${escapeHtml(r.item)}</td>
+          <td>${r.beta >= 0 ? "+" : ""}${r.beta.toFixed(3)}</td>
+          <td>${fmtScore(r.deptScore)}</td>
+          <td>${fmtScore(r.avgScore)}</td>
+          <td>${r.gap === null ? "-" : (r.gap >= 0 ? "+" : "") + r.gap.toFixed(1)}</td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+  }
+  container.innerHTML = html;
+}
+
+/* =========================================================
+   Tab 2: 부서 랭킹 & 이상치 탐지 (+ 위험군 리스트)
+   ========================================================= */
+function renderRankingTab(container, data) {
+  let html = "";
+  const group = siblingGroup(state.selectedCode);
+  if (!group) {
+    html += `<div class="note-box">최상위 조직은 비교할 형제 부서가 없습니다.</div>`;
+  } else {
+    const rows = group.map(c => ({ code: c, rec: rollup(c) })).filter(r => r.rec);
+    const overallVals = rows.map(r => overallScore(r.rec)).filter(v => v !== null);
+    const m = mean(overallVals), sd = stddev(overallVals);
+    const sortedVals = [...overallVals].sort((a, b) => a - b);
+    const q1 = quantile(sortedVals, 0.25), q3 = quantile(sortedVals, 0.75);
+    const iqr = (q1 !== null && q3 !== null) ? q3 - q1 : 0;
+    const lowerFence = (q1 ?? -Infinity) - 1.5 * iqr, upperFence = (q3 ?? Infinity) + 1.5 * iqr;
+    rows.forEach(r => {
+      r.overall = overallScore(r.rec);
+      r.z = (r.overall !== null && sd) ? (r.overall - m) / sd : 0;
+      r.outlier = r.overall !== null && (Math.abs(r.z) >= ANALYSIS.OUTLIER_Z || r.overall < lowerFence || r.overall > upperFence);
+    });
+    rows.sort((a, b) => (b.overall ?? -Infinity) - (a.overall ?? -Infinity));
+
+    const parentName = rollup(state.orgMap[state.selectedCode])?.dept_name ?? "";
+    html += `<div class="tab-panel-desc">"${escapeHtml(parentName)}" 산하 동일 계층 부서 ${rows.length}개를 비교합니다 (그룹 평균 ${m === null ? "-" : m.toFixed(1)}, 표준편차 ${sd === null ? "-" : sd.toFixed(1)}). 이상치 기준: |Z| ≥ ${ANALYSIS.OUTLIER_Z} 또는 IQR 벗어남.</div>
+      <table class="data-table">
+        <thead><tr><th>#</th><th>부서</th><th>종합점수</th><th>Z-score</th><th>즐거운일</th><th>함께하는동료</th><th>자랑스러운회사</th><th></th></tr></thead>
+        <tbody>${rows.map((r, i) => `<tr class="${r.code === state.selectedCode ? "selected-row" : ""} ${r.outlier ? "outlier-row" : ""}">
+          <td>${i + 1}</td>
+          <td>${escapeHtml(r.rec.dept_name)}</td>
+          <td>${fmtScore(r.overall)}</td>
+          <td>${r.z.toFixed(2)}</td>
+          <td>${fmtScore(r.rec.area_scores["즐거운일"])}</td>
+          <td>${fmtScore(r.rec.area_scores["함께하는동료"])}</td>
+          <td>${fmtScore(r.rec.area_scores["자랑스러운회사"])}</td>
+          <td>${r.outlier ? '<span class="badge warning">이상치</span>' : ""}</td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+  }
+
+  const riskList = computeRiskList(state.selectedCode);
+  html += `<div class="section-title">위험군 리스트 ("${escapeHtml(data.dept_name)}" 산하)</div>
+    <div class="tab-panel-desc">동일 그룹 내 영역 점수 하위 10%, 또는 전년비 하락폭이 그룹 평균보다 큰 부서입니다.</div>`;
+  if (!riskList.length) {
+    html += `<div class="note-box">현재 조건에 해당하는 위험군 부서가 없습니다.</div>`;
+  } else {
+    html += `<table class="data-table"><thead><tr><th>부서</th><th>사유</th></tr></thead><tbody>
+      ${riskList.map(r => `<tr><td>${escapeHtml(r.name)}</td><td>${r.reasons.map(reason => `<span class="chip risk">${escapeHtml(reason)}</span>`).join("")}</td></tr>`).join("")}
+    </tbody></table>`;
+  }
+  container.innerHTML = html;
+}
+
+/* =========================================================
+   Tab 3: 응답률-점수 신뢰도 분석
+   ========================================================= */
+function renderConfidenceTab(container, data) {
+  let html = `<div class="tab-panel-desc">응답률 ${(ANALYSIS.RESPONSE_RATE_TRUSTED * 100).toFixed(0)}% 이상: 신뢰 · ${(ANALYSIS.RESPONSE_RATE_CAUTION * 100).toFixed(0)}~${(ANALYSIS.RESPONSE_RATE_TRUSTED * 100).toFixed(0)}%: 주의 · 미만: 경고(표본 부족, 참고용)</div>
+    <div class="stat-row">
+      <div class="stat-box"><div class="v">${fmtPct(data.response_rate)}</div><div class="l">응답률</div></div>
+      <div class="stat-box"><div class="v">${confidenceBadgeHtml(data.response_rate)}</div><div class="l">신뢰도</div></div>
+    </div>`;
+  if (confidenceLevel(data.response_rate) === "warning") {
+    html += `<div class="note-box warning">이 부서는 응답률이 ${(ANALYSIS.RESPONSE_RATE_CAUTION * 100).toFixed(0)}% 미만으로 표본이 부족합니다. 점수는 참고용으로만 활용하세요.</div>`;
+  }
+
+  const units = surveyUnits();
+  const points = units.map(u => {
+    const y = overallScore(u);
+    const level = confidenceLevel(u.response_rate);
+    return {
+      x: u.response_rate * 100, y, code: u.dept_code,
+      label: `${u.dept_name} (응답률 ${fmtPct(u.response_rate)}, 점수 ${fmtScore(y)})`,
+      color: level === "trusted" ? "var(--positive)" : level === "caution" ? "var(--gold)" : "var(--coral)",
+    };
+  }).filter(p => p.y !== null);
+
+  html += `<div class="section-title">응답률 vs 점수 산점도 (전사 전체 부서)</div>`;
+  if (points.length < 2) {
+    html += `<div class="note-box">산점도를 그리기에 데이터가 부족합니다.</div>`;
+  } else {
+    const ys = points.map(p => p.y);
+    const r = pearsonR(points.map(p => p.x), ys);
+    const svg = renderScatterSVG({ points, xDomain: [0, 100], yDomain: [Math.min(...ys) - 3, Math.max(...ys) + 3], highlightCode: data.dept_code });
+    html += `<div class="scatter-wrap">${svg}
+      <div class="scatter-caption">X: 응답률(%) · Y: 종합점수 · 상관계수 r = ${r === null ? "-" : r.toFixed(2)} · 진한 테두리 = 현재 선택 부서</div>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+/* =========================================================
+   Tab 4: 부서장(리더십)별 비교
+   ========================================================= */
+function renderLeadershipTab(container, data) {
+  const leaders = computeLeaderStats();
+  const currentLeaderId = state.recordsByCode[state.selectedCode]?.leader_id;
+
+  let html = `<div class="tab-panel-desc">이번 회차 부서장ID 기준으로만 집계합니다 (과거 이력 미포함). 담당 부서·인원 규모가 다른 리더를 공정하게 비교하기 위해 응답인원 가중평균을 사용합니다.</div>
+    <table class="data-table"><thead><tr><th>#</th><th>부서장</th><th>담당부서</th><th>담당인원</th><th>응답인원</th><th>종합점수</th></tr></thead><tbody>
+      ${leaders.map((l, i) => `<tr class="${l.leader_id === currentLeaderId ? "selected-row" : ""}">
+        <td>${i + 1}</td>
+        <td>${escapeHtml(l.leader_name)} <span class="code">(${escapeHtml(l.leader_id)})</span></td>
+        <td>${l.deptCount}개 · ${l.depts.map(d => escapeHtml(d.dept_name)).join(", ")}</td>
+        <td>${l.totalTarget}명</td>
+        <td>${l.totalResponse}명</td>
+        <td>${fmtScore(l.overall)}</td>
+      </tr>`).join("")}
+    </tbody></table>`;
+
+  const points = leaders.filter(l => l.overall !== null).map(l => ({ x: l.totalTarget, y: l.overall, code: l.leader_id, label: `${l.leader_name} (담당 ${l.totalTarget}명, ${fmtScore(l.overall)}점)` }));
+  html += `<div class="section-title">담당 인원 규모 대비 점수</div>`;
+  if (points.length < 2) {
+    html += `<div class="note-box">비교할 리더가 부족합니다.</div>`;
+  } else {
+    const xs = points.map(p => p.x), ys = points.map(p => p.y);
+    const trend = linearRegression1D(xs, ys);
+    const r = pearsonR(xs, ys);
+    const svg = renderScatterSVG({ points, xDomain: [0, Math.max(...xs) * 1.1], yDomain: [Math.min(...ys) - 3, Math.max(...ys) + 3], highlightCode: currentLeaderId, trendLine: trend });
+    html += `<div class="scatter-wrap">${svg}
+      <div class="scatter-caption">X: 담당 인원(대상) · Y: 종합점수(가중평균) · 규모-점수 상관계수 r = ${r === null ? "-" : r.toFixed(2)}</div>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+/* =========================================================
+   Tab 5: 조직 내부 편차 분석
+   ========================================================= */
+function renderVarianceTab(container, data) {
+  const kids = childrenByParent()[state.selectedCode] || [];
+  if (!kids.length) {
+    container.innerHTML = `<div class="note-box">최하위 부서는 편차 분석 대상이 아닙니다. 하위 조직이 있는 부서를 선택하세요.</div>`;
+    return;
+  }
+  const rows = kids.map(c => ({ code: c, rec: rollup(c) })).filter(r => r.rec);
+  const overallVals = rows.map(r => overallScore(r.rec)).filter(v => v !== null);
+  if (overallVals.length < 2) {
+    container.innerHTML = `<div class="note-box">표본 부족으로 분석 제외 (하위 부서 ${overallVals.length}개).</div>`;
+    return;
+  }
+
+  const m = mean(overallVals), sd = stddev(overallVals);
+  const lo = Math.min(...overallVals), hi = Math.max(...overallVals);
+  const companyAvg = overallScore(rollup(rootCodes()[0]));
+
+  let labelClass, labelText;
+  if (sd < ANALYSIS.VARIANCE_LOW_STDDEV) {
+    if (companyAvg !== null && m >= companyAvg) { labelClass = "even-good"; labelText = "내부적으로 고르게 우수한 조직"; }
+    else { labelClass = "even-bad"; labelText = "내부적으로 고르게 저조한 조직"; }
+  } else {
+    labelClass = "spread"; labelText = "부서 간 편차가 큰 조직";
+  }
+
+  let html = `<div class="variance-label ${labelClass}">${labelText}</div>
+    <div class="stat-row">
+      <div class="stat-box"><div class="v">${m.toFixed(1)}</div><div class="l">평균</div></div>
+      <div class="stat-box"><div class="v">${sd.toFixed(1)}</div><div class="l">표준편차</div></div>
+      <div class="stat-box"><div class="v">${lo.toFixed(1)} ~ ${hi.toFixed(1)}</div><div class="l">최소 ~ 최대</div></div>
+      <div class="stat-box"><div class="v">${(hi - lo).toFixed(1)}</div><div class="l">범위(Range)</div></div>
+    </div>
+    <div class="section-title">하위 부서 점수 분포</div>
+    <div class="range-block"><div class="range-title"><span>종합점수</span></div>
+      ${renderRangeTrack(rows.map(r => ({ code: r.code, label: r.rec.dept_name, value: overallScore(r.rec) })).filter(v => v.value !== null), null)}
+    </div>`;
+
+  for (const area of AREA_DEFS) {
+    const vals = rows.map(r => ({ code: r.code, label: r.rec.dept_name, value: r.rec.area_scores?.[area.key] })).filter(v => typeof v.value === "number");
+    if (vals.length < 2) continue;
+    html += `<div class="range-block"><div class="range-title"><span>${escapeHtml(area.key)}</span></div>${renderRangeTrack(vals, null)}</div>`;
+  }
+  container.innerHTML = html;
+}
+
+const TAB_RENDERERS = {
+  overview: renderOverviewTab,
+  driver: renderDriverTab,
+  ranking: renderRankingTab,
+  confidence: renderConfidenceTab,
+  leadership: renderLeadershipTab,
+  variance: renderVarianceTab,
+};
+
+function renderTabContent() {
+  const container = document.getElementById("tab-content");
+  if (!state.selectedCode) return;
+  const data = rollup(state.selectedCode);
+  if (!data) { container.innerHTML = `<div class="no-data-note">이 부서에는 아직 설문 데이터가 없습니다.</div>`; return; }
+  document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === state.activeTab));
+  TAB_RENDERERS[state.activeTab](container, data);
+}
+
+function renderDeptPanel() {
+  const headerEl = document.getElementById("dept-header-slot");
+  const tabsEl = document.getElementById("view-tabs");
+  const tabContentEl = document.getElementById("tab-content");
+
+  if (!state.selectedCode) {
+    headerEl.innerHTML = "";
+    tabsEl.hidden = true;
+    tabContentEl.innerHTML = `<div class="no-data-note">좌측 조직도에서 부서를 선택하세요.</div>`;
+    return;
+  }
+
+  const data = rollup(state.selectedCode);
+  const rec = state.recordsByCode[state.selectedCode];
+  if (!data) {
+    headerEl.innerHTML = "";
+    tabsEl.hidden = true;
+    tabContentEl.innerHTML = `<div class="no-data-note">이 부서에는 아직 설문 데이터가 없습니다.</div>`;
+    return;
+  }
+
+  tabsEl.hidden = false;
+  const levelLabel = rec ? `레벨 ${rec.dept_level}` : "";
+  const responsePct = data.target_count ? Math.min(100, (data.response_count / data.target_count) * 100) : 0;
+  headerEl.innerHTML = `<div class="dept-header">
+    <div>
+      <div><span class="name">${escapeHtml(data.dept_name)}</span><span class="code">${escapeHtml(data.dept_code)}</span><span class="level-badge">${levelLabel}</span></div>
+      <div class="meta">부서장: ${escapeHtml(data.leader_name || "-")} ${data.leader_id ? `(${escapeHtml(data.leader_id)})` : ""}</div>
+      <div class="response-bar"><div style="width:${responsePct}%"></div></div>
+      <div class="meta">대상 ${data.target_count}명 / 응답 ${data.response_count}명 · ${confidenceBadgeHtml(data.response_rate)}</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="num">${fmtPct(data.response_rate)}</div><div class="label">응답률</div></div>
+    </div>
+  </div>`;
+
+  renderTabContent();
 }
 
 function renderViewMode() {
@@ -1630,6 +3313,13 @@ function setMode(mode) {
 document.getElementById("btn-mode-view").addEventListener("click", () => setMode("view"));
 document.getElementById("btn-mode-admin").addEventListener("click", () => setMode("admin"));
 
+document.getElementById("view-tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  state.activeTab = btn.dataset.tab;
+  renderTabContent();
+});
+
 document.getElementById("btn-load-survey").addEventListener("click", () => document.getElementById("file-survey").click());
 document.getElementById("file-survey").addEventListener("change", (e) => {
   const file = e.target.files[0];
@@ -1638,6 +3328,7 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
     state.surveyData = Array.isArray(json) ? json : json.records || [];
     indexRecords();
     invalidateRollupCache();
+    companyBetasCache = null;
     if (state.mode === "view") renderViewMode(); else renderAdminMode();
   });
   e.target.value = "";
