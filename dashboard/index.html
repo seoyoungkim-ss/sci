@@ -260,20 +260,23 @@
   .admin-tree { flex: 1; }
   .admin-tree ul { list-style: none; margin: 0; padding-left: 22px; }
   .admin-tree > ul { padding-left: 0; }
-  .admin-node {
+  .admin-node-row {
     display: flex; align-items: center; gap: 8px;
     background: var(--navy-100); border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px 10px; margin: 4px 0; cursor: grab; font-size: 13px;
+    padding: 8px 10px; margin: 4px 0; font-size: 13px;
   }
-  .admin-node.dragging { opacity: 0.4; }
-  .admin-node.drop-target { outline: 2px dashed var(--coral); background: #fff1ef; }
-  .admin-node.drop-before { box-shadow: 0 -3px 0 0 var(--coral); }
-  .admin-node.drop-after { box-shadow: 0 3px 0 0 var(--coral); }
+  .admin-node-row.dragging { opacity: 0.4; }
+  .admin-node-row.drop-target { outline: 2px dashed var(--coral); background: #fff1ef; }
+  .admin-node-row.drop-before { box-shadow: 0 -3px 0 0 var(--coral); }
+  .admin-node-row.drop-after { box-shadow: 0 3px 0 0 var(--coral); }
+  .admin-node {
+    display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: grab;
+  }
   .admin-node .level-chip {
     font-size: 10px; color: #fff; background: var(--navy-600); border-radius: 999px; padding: 1px 7px;
   }
   .admin-node .code { color: var(--muted); font-size: 11px; }
-  .admin-node .node-actions { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
+  .node-actions { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
   .node-move-btn {
     border: 1px solid var(--border); background: #fff; color: var(--navy-700);
     width: 24px; height: 24px; border-radius: 6px; font-size: 11px; cursor: pointer;
@@ -3342,60 +3345,81 @@ function renderAdminNode(code, container) {
   const siblingList = parent ? (childrenByParent()[parent] || []) : rootCodes();
   const siblingIdx = siblingList.indexOf(code);
 
-  const row = document.createElement("div");
-  row.className = "admin-node";
-  row.draggable = true;
-  row.dataset.code = code;
-  row.innerHTML = `<span class="level-chip">Lv${rec ? rec.dept_level : "?"}</span>
-    <span>${escapeHtml(rec ? rec.dept_name : code)}</span>
-    <span class="code">${escapeHtml(code)}</span>
-    <span class="node-actions">
-      <button type="button" class="node-move-btn" data-dir="up" title="위로 이동" ${siblingIdx <= 0 ? "disabled" : ""}>▲</button>
-      <button type="button" class="node-move-btn" data-dir="down" title="아래로 이동" ${siblingIdx === -1 || siblingIdx >= siblingList.length - 1 ? "disabled" : ""}>▼</button>
-    </span>`;
+  // A real click always has a little mouse movement between press and
+  // release. If the ▲▼ buttons were descendants of the draggable="true"
+  // row, Chromium can start dragging the row from that gesture instead
+  // of firing a click on the button — an automated .click() never
+  // shows this since it has zero movement, and draggable="false" on
+  // the button itself does NOT reliably stop it (verified: the browser
+  // still walks up to the nearest draggable=true ancestor and drags
+  // that). The only robust fix is keeping the buttons completely
+  // outside the draggable element's subtree, as a sibling — so
+  // `wrapper` is the full-width visual row and drop target, `label`
+  // (draggable) is only the text/level-chip part that starts a drag,
+  // and `actions` sits beside it, immune to the ancestor's dragability.
+  const wrapper = document.createElement("div");
+  wrapper.className = "admin-node-row";
+  wrapper.dataset.code = code;
 
-  row.querySelectorAll(".node-move-btn").forEach(btn => {
+  const label = document.createElement("div");
+  label.className = "admin-node";
+  label.draggable = true;
+  label.innerHTML = `<span class="level-chip">Lv${rec ? rec.dept_level : "?"}</span>
+    <span>${escapeHtml(rec ? rec.dept_name : code)}</span>
+    <span class="code">${escapeHtml(code)}</span>`;
+
+  label.addEventListener("dragstart", (e) => {
+    state.dragCode = code;
+    wrapper.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  });
+  label.addEventListener("dragend", () => {
+    wrapper.classList.remove("dragging");
+    document.querySelectorAll(".drop-target, .drop-before, .drop-after").forEach(n => n.classList.remove("drop-target", "drop-before", "drop-after"));
+  });
+
+  // Top/bottom ~30% of the row = "drop before/after this node" (reorder
+  // as a sibling); the middle band = "drop onto this node" (reparent
+  // as its child, appended last). These listen on the full-width
+  // wrapper (not just `label`) so the drop target covers the button
+  // area too.
+  wrapper.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    wrapper.classList.remove("drop-target", "drop-before", "drop-after");
+    if (!state.dragCode || state.dragCode === code || isDescendant(state.dragCode, code)) return;
+    const rect = wrapper.getBoundingClientRect();
+    const offset = (e.clientY - rect.top) / rect.height;
+    if (offset < 0.3) wrapper.classList.add("drop-before");
+    else if (offset > 0.7) wrapper.classList.add("drop-after");
+    else wrapper.classList.add("drop-target");
+  });
+  wrapper.addEventListener("dragleave", () => wrapper.classList.remove("drop-target", "drop-before", "drop-after"));
+  wrapper.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const rect = wrapper.getBoundingClientRect();
+    const offset = (e.clientY - rect.top) / rect.height;
+    wrapper.classList.remove("drop-target", "drop-before", "drop-after");
+    if (offset < 0.3) reorderNode(state.dragCode, code, "before");
+    else if (offset > 0.7) reorderNode(state.dragCode, code, "after");
+    else reparent(state.dragCode, code);
+  });
+
+  const actions = document.createElement("span");
+  actions.className = "node-actions";
+  actions.innerHTML = `
+    <button type="button" class="node-move-btn" data-dir="up" title="위로 이동" ${siblingIdx <= 0 ? "disabled" : ""}>▲</button>
+    <button type="button" class="node-move-btn" data-dir="down" title="아래로 이동" ${siblingIdx === -1 || siblingIdx >= siblingList.length - 1 ? "disabled" : ""}>▼</button>
+  `;
+  actions.querySelectorAll(".node-move-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       moveSibling(code, btn.dataset.dir);
     });
   });
 
-  row.addEventListener("dragstart", (e) => {
-    state.dragCode = code;
-    row.classList.add("dragging");
-    e.dataTransfer.effectAllowed = "move";
-  });
-  row.addEventListener("dragend", () => {
-    row.classList.remove("dragging");
-    document.querySelectorAll(".drop-target, .drop-before, .drop-after").forEach(n => n.classList.remove("drop-target", "drop-before", "drop-after"));
-  });
-  // Top/bottom ~30% of the row = "drop before/after this node" (reorder
-  // as a sibling); the middle band = "drop onto this node" (reparent
-  // as its child, appended last). Lets same-level siblings be reordered
-  // by dragging, not just moved between parents.
-  row.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    row.classList.remove("drop-target", "drop-before", "drop-after");
-    if (!state.dragCode || state.dragCode === code || isDescendant(state.dragCode, code)) return;
-    const rect = row.getBoundingClientRect();
-    const offset = (e.clientY - rect.top) / rect.height;
-    if (offset < 0.3) row.classList.add("drop-before");
-    else if (offset > 0.7) row.classList.add("drop-after");
-    else row.classList.add("drop-target");
-  });
-  row.addEventListener("dragleave", () => row.classList.remove("drop-target", "drop-before", "drop-after"));
-  row.addEventListener("drop", (e) => {
-    e.preventDefault();
-    const rect = row.getBoundingClientRect();
-    const offset = (e.clientY - rect.top) / rect.height;
-    row.classList.remove("drop-target", "drop-before", "drop-after");
-    if (offset < 0.3) reorderNode(state.dragCode, code, "before");
-    else if (offset > 0.7) reorderNode(state.dragCode, code, "after");
-    else reparent(state.dragCode, code);
-  });
-
-  li.appendChild(row);
+  wrapper.appendChild(label);
+  wrapper.appendChild(actions);
+  li.appendChild(wrapper);
 
   if (kids.length) {
     const ul = document.createElement("ul");
