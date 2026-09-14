@@ -297,16 +297,6 @@
   .badge.caution { background: var(--gold-light); color: #8a6a1a; }
   .badge.warning { background: #fde3e0; color: var(--negative); }
 
-  /* horizontal bar chart (key driver / rankings) */
-  .bar-chart { display: flex; flex-direction: column; gap: 8px; }
-  .bar-row { display: grid; grid-template-columns: 90px 1fr 60px; align-items: center; gap: 10px; font-size: 12.5px; }
-  .bar-row .bar-label { color: var(--navy-800); font-weight: 600; text-align: right; }
-  .bar-track { position: relative; height: 16px; background: var(--navy-100); border-radius: 4px; overflow: hidden; }
-  .bar-track .bar-fill { position: absolute; top: 0; bottom: 0; background: var(--coral); }
-  .bar-track .bar-fill.negative { background: var(--navy-600); }
-  .bar-track .bar-zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
-  .bar-row .bar-value { font-weight: 700; color: var(--navy-900); }
-
   /* generic data table */
   table.data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   table.data-table th, table.data-table td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--border); }
@@ -319,23 +309,16 @@
   .chip { display: inline-block; font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: var(--navy-100); color: var(--navy-800); margin: 2px 3px 2px 0; }
   .chip.risk { background: #fde3e0; color: var(--negative); }
 
-  /* scatter plot */
-  .scatter-wrap { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
-  .scatter-wrap svg { width: 100%; height: auto; display: block; }
+  /* any inline-SVG chart (bar chart, scatter plot, range track), all
+     capturable as an image via the "그래프 이미지로 복사" button */
+  .chart-block { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+  .chart-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .btn-capture-chart { font-size: 11.5px; padding: 5px 10px; background: var(--navy-100); color: var(--navy-800); }
+  .btn-capture-chart:hover { background: var(--navy-600); color: #fff; }
+  .chart-copy-status { font-size: 11.5px; color: var(--positive); font-weight: 600; }
+  .svg-chart-wrap svg { width: 100%; height: auto; display: block; }
   .scatter-caption { font-size: 12px; color: var(--muted); margin-top: 8px; }
 
-  /* min-max range track (org variance) */
-  .range-block { margin-bottom: 18px; }
-  .range-block .range-title { font-size: 12.5px; font-weight: 700; color: var(--navy-800); margin-bottom: 10px; display: flex; justify-content: space-between; }
-  .range-track { position: relative; height: 34px; background: var(--navy-100); border-radius: 8px; margin: 0 8px; }
-  .range-band { position: absolute; top: 0; bottom: 0; background: rgba(255,111,94,0.25); border-radius: 8px; }
-  .range-mean { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--navy-900); transform: translateX(-1px); }
-  .range-dot {
-    position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
-    background: var(--coral); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--coral-dark);
-    transform: translate(-50%, -50%); cursor: default;
-  }
-  .range-dot.highlight { background: var(--gold); box-shadow: 0 0 0 2px var(--navy-900); width: 14px; height: 14px; }
   .variance-label { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; margin-bottom: 14px; }
   .variance-label.even-good { background: #e3f5ec; color: var(--positive); }
   .variance-label.even-bad { background: #fde3e0; color: var(--negative); }
@@ -378,7 +361,6 @@
     .sidebar { width: 100%; position: static; max-height: none; }
     .area-grid { grid-template-columns: 1fr; }
     .item-grid { grid-template-columns: repeat(2, 1fr); }
-    .bar-row { grid-template-columns: 70px 1fr 50px; }
   }
 </style>
 </head>
@@ -2792,21 +2774,135 @@ function renderScatterSVG({ points, xDomain, yDomain, width = 620, height = 300,
     `<text x="${pad.l - 8}" y="${(yScale(v) + 3).toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end">${v.toFixed(0)}</text>`
   ).join("");
 
-  return `<svg viewBox="0 0 ${width} ${height}">${axisLine}${xTicks}${yTicks}${trendSvg}${dots}</svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${axisLine}${xTicks}${yTicks}${trendSvg}${dots}</svg>`;
 }
 
-function renderRangeTrack(values, highlightCode, trackMin = 40, trackMax = 100) {
-  const scaleX = v => Math.max(0, Math.min(100, ((v - trackMin) / (trackMax - trackMin)) * 100));
+/** Horizontal bar chart (used by the key-driver tab) as inline SVG,
+ * so it can be captured as an image the same way as the scatter plots. */
+function renderBarChartSVG(bars, { width = 620, barHeight = 24, gap = 10, labelWidth = 90, valueWidth = 64 } = {}) {
+  const height = bars.length * (barHeight + gap) + gap;
+  const trackWidth = Math.max(40, width - labelWidth - valueWidth - 20);
+  const maxAbs = Math.max(...bars.map(b => Math.abs(b.value)), 0.001);
+  const rows = bars.map((b, i) => {
+    const y = gap + i * (barHeight + gap);
+    const barW = (Math.abs(b.value) / maxAbs) * trackWidth;
+    const barColor = b.value < 0 ? "var(--navy-600)" : "var(--coral)";
+    const trackX = labelWidth + 10;
+    return `<text x="${labelWidth - 8}" y="${(y + barHeight / 2 + 4).toFixed(1)}" font-size="12.5" text-anchor="end" fill="var(--navy-800)" font-weight="700">${escapeHtml(b.label)}</text>
+      <rect x="${trackX}" y="${y}" width="${trackWidth}" height="${barHeight}" rx="4" fill="var(--navy-100)" />
+      <rect x="${trackX}" y="${y}" width="${barW.toFixed(1)}" height="${barHeight}" rx="4" fill="${barColor}" />
+      <text x="${(trackX + trackWidth + 10).toFixed(1)}" y="${(y + barHeight / 2 + 4).toFixed(1)}" font-size="12.5" fill="var(--navy-900)" font-weight="700">${b.value >= 0 ? "+" : ""}${b.value.toFixed(3)}</text>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${rows}</svg>`;
+}
+
+/** Min-max "range track" (used by the org-variance tab) as inline SVG:
+ * a shaded band from lowest to highest child score, a mean marker, and
+ * one dot per child. */
+function renderRangeTrackSVG(values, highlightCode, { trackMin = 40, trackMax = 100, width = 620, height = 60 } = {}) {
+  const padX = 16;
+  const scaleX = v => padX + ((v - trackMin) / (trackMax - trackMin)) * (width - padX * 2);
   const nums = values.map(v => v.value);
   const lo = Math.min(...nums), hi = Math.max(...nums), m = mean(nums);
-  const dots = values.map(v =>
-    `<div class="range-dot ${v.code === highlightCode ? "highlight" : ""}" style="left:${scaleX(v.value)}%" title="${escapeHtml(v.label)}: ${v.value.toFixed(1)}"></div>`
-  ).join("");
-  return `<div class="range-track">
-    <div class="range-band" style="left:${scaleX(lo)}%; width:${(scaleX(hi) - scaleX(lo)).toFixed(2)}%"></div>
-    <div class="range-mean" style="left:${scaleX(m)}%"></div>
-    ${dots}
+  const trackY = height / 2;
+  const parts = [
+    `<rect x="${padX}" y="${trackY - 10}" width="${width - padX * 2}" height="20" rx="10" fill="var(--navy-100)" />`,
+    `<rect x="${scaleX(lo).toFixed(1)}" y="${trackY - 10}" width="${(scaleX(hi) - scaleX(lo)).toFixed(1)}" height="20" rx="10" fill="rgba(255,111,94,0.28)" />`,
+    `<line x1="${scaleX(m).toFixed(1)}" y1="${trackY - 17}" x2="${scaleX(m).toFixed(1)}" y2="${trackY + 17}" stroke="var(--navy-900)" stroke-width="2" />`,
+  ];
+  for (const v of values) {
+    const isHi = v.code === highlightCode;
+    parts.push(`<circle cx="${scaleX(v.value).toFixed(1)}" cy="${trackY}" r="${isHi ? 7 : 6}" fill="${isHi ? "var(--gold)" : "var(--coral)"}" stroke="#fff" stroke-width="2"><title>${escapeHtml(v.label)}: ${v.value.toFixed(1)}</title></circle>`);
+  }
+  return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${parts.join("")}</svg>`;
+}
+
+/** Wraps any inline-SVG chart markup with a "그래프 이미지로 복사" button
+ * and optional caption. The button is wired via one delegated listener
+ * (see Wiring) so it works for charts inserted at any point. */
+function chartBlockHtml(svgHtml, chartName, captionHtml) {
+  return `<div class="chart-block">
+    <div class="chart-toolbar">
+      <button class="btn ghost btn-capture-chart" data-chart-name="${escapeHtml(chartName)}">그래프 이미지로 복사</button>
+      <span class="chart-copy-status"></span>
+    </div>
+    <div class="svg-chart-wrap">${svgHtml}</div>
+    ${captionHtml ? `<div class="scatter-caption">${captionHtml}</div>` : ""}
   </div>`;
+}
+
+/** Resolve the theme's CSS custom properties (var(--coral) etc.) into
+ * concrete colors and inline them into a cloned SVG. A data-URI <img>
+ * is rendered as its own isolated document, so it can't see the host
+ * page's :root variables — without this, every themed color in the
+ * captured chart would fall back to black. */
+const CHART_CSS_VARS = [
+  "--navy-900", "--navy-800", "--navy-700", "--navy-600", "--navy-100",
+  "--coral", "--coral-dark", "--gold", "--gold-light",
+  "--positive", "--negative", "--muted", "--border", "--text",
+];
+function inlineCssVarsIntoSvg(svgEl) {
+  const clone = svgEl.cloneNode(true);
+  const cs = getComputedStyle(document.documentElement);
+  const rules = CHART_CSS_VARS.map(v => `${v}: ${cs.getPropertyValue(v).trim()};`).join(" ");
+  const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  styleEl.textContent = `:root { ${rules} } text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif; }`;
+  clone.insertBefore(styleEl, clone.firstChild);
+  if (!clone.getAttribute("xmlns")) clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  return clone;
+}
+
+function svgToPngBlob(svgEl, scale = 2) {
+  return new Promise((resolve, reject) => {
+    const clone = inlineCssVarsIntoSvg(svgEl);
+    const w = clone.viewBox?.baseVal?.width || svgEl.clientWidth || 620;
+    const h = clone.viewBox?.baseVal?.height || svgEl.clientHeight || 300;
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svg64 = "data:image/svg+xml;charset=utf-8;base64," + btoa(unescape(encodeURIComponent(xml)));
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff"; // flatten transparency to white so it pastes cleanly into docs
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error("toBlob failed"))), "image/png");
+    };
+    img.onerror = () => reject(new Error("SVG image load failed"));
+    img.src = svg64;
+  });
+}
+
+function showTransientStatus(el, msg, ms = 4000) {
+  if (!el) return;
+  el.textContent = msg;
+  setTimeout(() => { if (el.textContent === msg) el.textContent = ""; }, ms);
+}
+
+async function copyChartImage(svgEl, statusEl, filename) {
+  try {
+    const blob = await svgToPngBlob(svgEl);
+    if (navigator.clipboard && window.ClipboardItem) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        showTransientStatus(statusEl, "복사되었습니다. Ctrl+V로 붙여넣으세요.");
+        return;
+      } catch (err) { /* clipboard write refused (e.g. no permission) — fall back to a download */ }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "chart.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showTransientStatus(statusEl, "클립보드 복사가 지원되지 않아 이미지 파일로 다운로드했습니다.");
+  } catch (err) {
+    showTransientStatus(statusEl, "이미지 생성에 실패했습니다.");
+  }
 }
 
 /* =========================================================
@@ -2973,18 +3069,10 @@ function renderDriverTab(container, data) {
     return;
   }
 
-  const maxAbsBeta = Math.max(...result.betas.map(b => Math.abs(b.beta)), 0.001);
-  const barsHtml = result.betas.map(b => {
-    const pct = (Math.abs(b.beta) / maxAbsBeta) * 100;
-    return `<div class="bar-row">
-      <div class="bar-label">${escapeHtml(b.item)}</div>
-      <div class="bar-track"><div class="bar-fill ${b.beta < 0 ? "negative" : ""}" style="width:${pct.toFixed(1)}%"></div></div>
-      <div class="bar-value">${b.beta >= 0 ? "+" : ""}${b.beta.toFixed(3)}</div>
-    </div>`;
-  }).join("");
+  const barSvg = renderBarChartSVG(result.betas.map(b => ({ label: b.item, value: b.beta })));
 
   let html = `<div class="tab-panel-desc">전사 응답 데이터(유효 부서 ${result.n}개) 기준 표준화 회귀계수입니다. 절대값이 클수록 "회사만족"에 미치는 영향력이 큽니다.</div>
-    <div class="bar-chart">${barsHtml}</div>`;
+    ${chartBlockHtml(barSvg, `핵심동인분석_${data.dept_name}`)}`;
 
   const isRoot = !state.orgMap[state.selectedCode];
   if (!isRoot) {
@@ -3098,9 +3186,8 @@ function renderConfidenceTab(container, data) {
     const ys = points.map(p => p.y);
     const r = pearsonR(points.map(p => p.x), ys);
     const svg = renderScatterSVG({ points, xDomain: [0, 100], yDomain: [Math.min(...ys) - 3, Math.max(...ys) + 3], highlightCode: data.dept_code });
-    html += `<div class="scatter-wrap">${svg}
-      <div class="scatter-caption">X: 응답률(%) · Y: 종합점수 · 상관계수 r = ${r === null ? "-" : r.toFixed(2)} · 진한 테두리 = 현재 선택 부서</div>
-    </div>`;
+    html += chartBlockHtml(svg, `응답신뢰도_${data.dept_name}`,
+      `X: 응답률(%) · Y: 종합점수 · 상관계수 r = ${r === null ? "-" : r.toFixed(2)} · 진한 테두리 = 현재 선택 부서`);
   }
   container.innerHTML = html;
 }
@@ -3133,9 +3220,8 @@ function renderLeadershipTab(container, data) {
     const trend = linearRegression1D(xs, ys);
     const r = pearsonR(xs, ys);
     const svg = renderScatterSVG({ points, xDomain: [0, Math.max(...xs) * 1.1], yDomain: [Math.min(...ys) - 3, Math.max(...ys) + 3], highlightCode: currentLeaderId, trendLine: trend });
-    html += `<div class="scatter-wrap">${svg}
-      <div class="scatter-caption">X: 담당 인원(대상) · Y: 종합점수(가중평균) · 규모-점수 상관계수 r = ${r === null ? "-" : r.toFixed(2)}</div>
-    </div>`;
+    html += chartBlockHtml(svg, "리더십비교",
+      `X: 담당 인원(대상) · Y: 종합점수(가중평균) · 규모-점수 상관계수 r = ${r === null ? "-" : r.toFixed(2)}`);
   }
   container.innerHTML = html;
 }
@@ -3176,14 +3262,12 @@ function renderVarianceTab(container, data) {
       <div class="stat-box"><div class="v">${(hi - lo).toFixed(1)}</div><div class="l">범위(Range)</div></div>
     </div>
     <div class="section-title">하위 부서 점수 분포</div>
-    <div class="range-block"><div class="range-title"><span>종합점수</span></div>
-      ${renderRangeTrack(rows.map(r => ({ code: r.code, label: r.rec.dept_name, value: overallScore(r.rec) })).filter(v => v.value !== null), null)}
-    </div>`;
+    ${chartBlockHtml(renderRangeTrackSVG(rows.map(r => ({ code: r.code, label: r.rec.dept_name, value: overallScore(r.rec) })).filter(v => v.value !== null), null), `조직편차_${data.dept_name}_종합점수`, "종합점수")}`;
 
   for (const area of AREA_DEFS) {
     const vals = rows.map(r => ({ code: r.code, label: r.rec.dept_name, value: r.rec.area_scores?.[area.key] })).filter(v => typeof v.value === "number");
     if (vals.length < 2) continue;
-    html += `<div class="range-block"><div class="range-title"><span>${escapeHtml(area.key)}</span></div>${renderRangeTrack(vals, null)}</div>`;
+    html += chartBlockHtml(renderRangeTrackSVG(vals, null), `조직편차_${data.dept_name}_${area.key}`, area.key);
   }
   container.innerHTML = html;
 }
@@ -3574,6 +3658,19 @@ document.getElementById("view-tabs").addEventListener("click", (e) => {
   if (!btn) return;
   state.activeTab = btn.dataset.tab;
   renderTabContent();
+});
+
+// Delegated so it works for chart-capture buttons rendered inside any
+// tab (they're recreated on every re-render, so a direct listener
+// would need constant rewiring).
+document.body.addEventListener("click", (e) => {
+  const btn = e.target.closest(".btn-capture-chart");
+  if (!btn) return;
+  const block = btn.closest(".chart-block");
+  const svg = block?.querySelector("svg");
+  const statusEl = block?.querySelector(".chart-copy-status");
+  if (!svg) return;
+  copyChartImage(svg, statusEl, `${btn.dataset.chartName || "chart"}.png`);
 });
 
 document.getElementById("btn-load-survey").addEventListener("click", () => document.getElementById("file-survey").click());
