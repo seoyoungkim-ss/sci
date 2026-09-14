@@ -267,6 +267,8 @@
   }
   .admin-node.dragging { opacity: 0.4; }
   .admin-node.drop-target { outline: 2px dashed var(--coral); background: #fff1ef; }
+  .admin-node.drop-before { box-shadow: 0 -3px 0 0 var(--coral); }
+  .admin-node.drop-after { box-shadow: 0 3px 0 0 var(--coral); }
   .admin-node .level-chip {
     font-size: 10px; color: #fff; background: var(--navy-600); border-radius: 999px; padding: 1px 7px;
   }
@@ -419,7 +421,8 @@
         <span style="color:var(--muted); font-size:12px;" id="admin-status"></span>
       </div>
       <div class="admin-hint">
-        부서 노드를 드래그해서 다른 부서 위에 놓으면 그 부서의 하위 조직으로 이동합니다.
+        부서 노드를 드래그해서 다른 부서 <b>가운데</b>에 놓으면 그 부서의 하위 조직으로 이동합니다.
+        같은 부서의 <b>위쪽/아래쪽 가장자리</b>에 놓으면 하위조직으로 들어가지 않고 그 부서 바로 앞/뒤로 순서만 바뀝니다(형제 순서 변경).
         A컬럼의 부서레벨은 참고용 숫자일 뿐이며, 실제 상하위 관계는 이 화면에서 구성한 트리 기준으로 계산됩니다.
       </div>
       <div class="root-dropzone" id="root-dropzone">최상위 부서로 만들려면 여기로 드래그하세요</div>
@@ -3293,19 +3296,31 @@ function renderAdminNode(code, container) {
   });
   row.addEventListener("dragend", () => {
     row.classList.remove("dragging");
-    document.querySelectorAll(".drop-target").forEach(n => n.classList.remove("drop-target"));
+    document.querySelectorAll(".drop-target, .drop-before, .drop-after").forEach(n => n.classList.remove("drop-target", "drop-before", "drop-after"));
   });
+  // Top/bottom ~30% of the row = "drop before/after this node" (reorder
+  // as a sibling); the middle band = "drop onto this node" (reparent
+  // as its child, appended last). Lets same-level siblings be reordered
+  // by dragging, not just moved between parents.
   row.addEventListener("dragover", (e) => {
     e.preventDefault();
-    if (state.dragCode && state.dragCode !== code && !isDescendant(state.dragCode, code)) {
-      row.classList.add("drop-target");
-    }
+    row.classList.remove("drop-target", "drop-before", "drop-after");
+    if (!state.dragCode || state.dragCode === code || isDescendant(state.dragCode, code)) return;
+    const rect = row.getBoundingClientRect();
+    const offset = (e.clientY - rect.top) / rect.height;
+    if (offset < 0.3) row.classList.add("drop-before");
+    else if (offset > 0.7) row.classList.add("drop-after");
+    else row.classList.add("drop-target");
   });
-  row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
+  row.addEventListener("dragleave", () => row.classList.remove("drop-target", "drop-before", "drop-after"));
   row.addEventListener("drop", (e) => {
     e.preventDefault();
-    row.classList.remove("drop-target");
-    reparent(state.dragCode, code);
+    const rect = row.getBoundingClientRect();
+    const offset = (e.clientY - rect.top) / rect.height;
+    row.classList.remove("drop-target", "drop-before", "drop-after");
+    if (offset < 0.3) reorderNode(state.dragCode, code, "before");
+    else if (offset > 0.7) reorderNode(state.dragCode, code, "after");
+    else reparent(state.dragCode, code);
   });
 
   li.appendChild(row);
@@ -3318,13 +3333,49 @@ function renderAdminNode(code, container) {
   container.appendChild(li);
 }
 
+/** Moves `code`'s entry to the end of the org map's key order (JS
+ * objects preserve insertion order for string keys, and that order is
+ * what childrenByParent()/rootCodes() render in) — so a reparented
+ * node predictably lands as the LAST child under its new parent
+ * instead of wherever it happened to sit in the map before. */
+function moveEntryToEnd(code, parent) {
+  const rest = Object.entries(state.orgMap).filter(([c]) => c !== code);
+  rest.push([code, parent]);
+  state.orgMap = Object.fromEntries(rest);
+}
+
 function reparent(code, newParent) {
   if (!code || code === newParent) return;
   if (newParent !== null && isDescendant(code, newParent)) {
     alert("하위 부서를 상위 부서로 이동할 수 없습니다.");
     return;
   }
-  state.orgMap[code] = newParent;
+  moveEntryToEnd(code, newParent);
+  invalidateRollupCache();
+  renderAdminMode();
+  document.getElementById("admin-status").textContent = `저장되지 않은 변경사항 있음`;
+}
+
+/** Reorders `code` to sit immediately before/after `referenceCode`
+ * among referenceCode's siblings (adopting referenceCode's parent).
+ * Since childrenByParent() derives sibling order purely from each
+ * code's relative position in state.orgMap's key order, splicing
+ * code's entry to sit next to referenceCode's in the map is enough to
+ * fix its position within that filtered sibling list — everything
+ * else's relative order is untouched. */
+function reorderNode(code, referenceCode, position) {
+  if (!code || code === referenceCode) return;
+  const newParent = state.orgMap[referenceCode];
+  if (code === newParent) return; // referenceCode is a direct child of code — no valid position exists
+  if (newParent !== null && isDescendant(code, newParent)) {
+    alert("하위 부서를 상위 부서로 이동할 수 없습니다.");
+    return;
+  }
+  const entries = Object.entries(state.orgMap).filter(([c]) => c !== code);
+  const refIndex = entries.findIndex(([c]) => c === referenceCode);
+  const insertAt = position === "before" ? refIndex : refIndex + 1;
+  entries.splice(insertAt, 0, [code, newParent]);
+  state.orgMap = Object.fromEntries(entries);
   invalidateRollupCache();
   renderAdminMode();
   document.getElementById("admin-status").textContent = `저장되지 않은 변경사항 있음`;
