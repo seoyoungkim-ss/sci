@@ -2397,20 +2397,35 @@ function isDescendant(ancestorCode, code) {
  * (e.g. the very first real-data load, replacing the embedded dummy
  * codes) leaves admin mode showing only the old, now-dataless codes —
  * the tree it renders is built from state.orgMap, not from the survey
- * data. Returns whether any code had to fall back because its old
- * parent disappeared, how many 레벨2 departments were auto-nested,
- * and what the default top-level code was (if any), so callers can
- * tell the admin what happened. */
+ * data. Also preserves state.orgMap's existing KEY ORDER for every
+ * code that survives — sibling order is entirely derived from that
+ * key order (see childrenByParent()), so an admin's manual drag-and-
+ * drop reordering has to be carried forward here too; only appending
+ * brand-new codes at the end. Without this, reloading survey data
+ * (e.g. refreshing scores for a later round) would silently re-sort
+ * every department back into the JSON file's row order, discarding
+ * any reordering the admin had already done, even though parent/child
+ * placement was correctly preserved — a very easy bug to miss because
+ * the tree still looks "correct", just back in the wrong order.
+ * Returns whether any code had to fall back because its old parent
+ * disappeared, how many 레벨2 departments were auto-nested, and what
+ * the default top-level code was (if any), so callers can tell the
+ * admin what happened. */
 function reconcileOrgMapWithSurveyData(records) {
   const newCodes = new Set(records.map(r => r.dept_code));
   const levelByCode = Object.fromEntries(records.map(r => [r.dept_code, r.dept_level]));
   const level1Codes = records.filter(r => r.dept_level === 1).map(r => r.dept_code);
   const defaultTopCode = level1Codes.length === 1 ? level1Codes[0] : null;
 
+  const orderedCodes = [
+    ...Object.keys(state.orgMap).filter(c => newCodes.has(c)), // existing codes, in their current order
+    ...[...newCodes].filter(c => !(c in state.orgMap)),        // brand-new codes, appended at the end
+  ];
+
   const rebuilt = {};
   let droppedToRoot = 0;
   let autoNestedUnderTop = 0;
-  for (const code of newCodes) {
+  for (const code of orderedCodes) {
     const existingParent = state.orgMap[code];
     if (existingParent && newCodes.has(existingParent)) {
       rebuilt[code] = existingParent;
