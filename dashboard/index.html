@@ -1,0 +1,1683 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부서 건강도 설문 대시보드</title>
+<style>
+  :root {
+    --navy-900: #0f1b33;
+    --navy-800: #16233f;
+    --navy-700: #1f3157;
+    --navy-600: #2c4470;
+    --navy-100: #e8ecf6;
+    --paper: #f5f6fa;
+    --card: #ffffff;
+    --coral: #ff6f5e;
+    --coral-dark: #e2503f;
+    --gold: #d9a441;
+    --gold-light: #f4e3bd;
+    --positive: #2f9e6e;
+    --negative: #e2503f;
+    --muted: #8a90a3;
+    --border: #e3e6ef;
+    --text: #1a2236;
+    --radius: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--text);
+    font-size: 14px;
+  }
+  a { color: inherit; }
+
+  /* ---- Header / mode switch ---- */
+  header.app-header {
+    background: var(--navy-900);
+    color: #fff;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  header.app-header .title {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    margin-right: auto;
+  }
+  header.app-header .title .round-badge {
+    display: inline-block;
+    margin-left: 10px;
+    background: var(--gold);
+    color: var(--navy-900);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    vertical-align: middle;
+  }
+  .mode-switch {
+    display: flex;
+    background: var(--navy-700);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .mode-switch button {
+    border: none;
+    background: transparent;
+    color: #cfd6e8;
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mode-switch button.active {
+    background: var(--coral);
+    color: #fff;
+  }
+  .file-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--navy-700);
+    color: #fff;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--navy-600); }
+  .btn.coral { background: var(--coral); }
+  .btn.coral:hover { background: var(--coral-dark); }
+  .btn.ghost {
+    background: transparent;
+    border-color: rgba(255,255,255,0.35);
+  }
+  .btn.ghost:hover { background: rgba(255,255,255,0.1); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  input[type=file] { display: none; }
+
+  main { padding: 20px 24px 60px; max-width: 1280px; margin: 0 auto; }
+  [hidden] { display: none !important; }
+
+  /* ---- View mode layout ---- */
+  #view-mode { display: flex; gap: 20px; align-items: flex-start; }
+  .sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    position: sticky;
+    top: 78px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+  }
+  .sidebar h3 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .tree ul { list-style: none; margin: 0; padding-left: 14px; }
+  .tree > ul { padding-left: 0; }
+  .tree li { margin: 1px 0; }
+  .tree .node-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .tree .node-row:hover { background: var(--navy-100); }
+  .tree .node-row.selected { background: var(--coral); color: #fff; font-weight: 700; }
+  .tree .toggle {
+    width: 14px; text-align: center; color: var(--muted); font-size: 10px; user-select: none;
+  }
+  .tree .node-row.selected .toggle { color: #fff; }
+  .tree .leaf-dot { color: var(--border); width: 14px; text-align: center; }
+
+  .content { flex: 1; min-width: 0; }
+
+  .breadcrumb {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+    margin-bottom: 16px; font-size: 13px; color: var(--muted);
+  }
+  .breadcrumb .crumb { cursor: pointer; padding: 3px 6px; border-radius: 6px; }
+  .breadcrumb .crumb:hover { background: var(--navy-100); color: var(--navy-900); }
+  .breadcrumb .crumb.current { color: var(--navy-900); font-weight: 700; background: none; cursor: default; }
+  .breadcrumb .sep { color: var(--border); }
+
+  .dept-header {
+    background: var(--navy-900);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .dept-header .name { font-size: 20px; font-weight: 800; }
+  .dept-header .code { font-size: 12px; color: #aab3cc; margin-left: 8px; font-weight: 500; }
+  .dept-header .level-badge {
+    display: inline-block; margin-left: 8px; font-size: 11px; padding: 2px 8px;
+    border-radius: 999px; background: var(--navy-700); color: #cfe0ff; vertical-align: middle;
+  }
+  .dept-header .meta { font-size: 12.5px; color: #cfd6e8; margin-top: 6px; }
+  .dept-header .stats { display: flex; gap: 22px; text-align: right; }
+  .dept-header .stat .num { font-size: 20px; font-weight: 800; }
+  .dept-header .stat .label { font-size: 11px; color: #aab3cc; }
+  .response-bar {
+    width: 100%; height: 6px; background: rgba(255,255,255,0.15); border-radius: 4px; margin-top: 8px; overflow: hidden;
+  }
+  .response-bar > div { height: 100%; background: var(--gold); }
+
+  .section-title {
+    font-size: 13px; font-weight: 700; color: var(--navy-800); margin: 22px 0 10px;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+
+  .area-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .area-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; border-top: 4px solid var(--coral);
+  }
+  .area-card:nth-child(2) { border-top-color: var(--gold); }
+  .area-card:nth-child(3) { border-top-color: var(--navy-600); }
+  .area-card .area-name { font-size: 13px; font-weight: 700; color: var(--navy-800); }
+  .area-card .area-score { font-size: 32px; font-weight: 800; margin-top: 6px; color: var(--navy-900); }
+  .area-card .yoy { font-size: 12.5px; margin-top: 4px; font-weight: 600; }
+  .yoy.up { color: var(--positive); }
+  .yoy.down { color: var(--negative); }
+  .yoy.none { color: var(--muted); font-weight: 500; }
+
+  .item-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .item-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; cursor: pointer; transition: box-shadow .15s;
+  }
+  .item-card:hover { box-shadow: 0 2px 10px rgba(15,27,51,0.08); border-color: var(--navy-600); }
+  .item-card .item-area-tag { font-size: 10.5px; color: var(--muted); }
+  .item-card .item-name { font-size: 13.5px; font-weight: 700; margin: 3px 0; }
+  .item-card .item-score { font-size: 20px; font-weight: 800; color: var(--navy-900); }
+  .item-card .chevron { float: right; color: var(--muted); font-size: 11px; }
+  .item-card.expanded { border-color: var(--coral); background: #fff8f7; }
+
+  .question-list {
+    grid-column: 1 / -1;
+    background: var(--navy-100);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-top: -4px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px 16px;
+  }
+  .question-list .q-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; }
+  .question-list .q-row .q-label { color: var(--navy-700); }
+  .question-list .q-row .q-score { font-weight: 700; color: var(--navy-900); }
+
+  .no-data-note {
+    background: var(--card); border: 1px dashed var(--border); border-radius: var(--radius);
+    padding: 30px; text-align: center; color: var(--muted); margin-top: 16px;
+  }
+
+  /* ---- Admin mode ---- */
+  #admin-mode { display: flex; gap: 20px; align-items: flex-start; }
+  .admin-panel {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; flex: 1;
+  }
+  .admin-toolbar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;
+    padding-bottom: 14px; border-bottom: 1px solid var(--border);
+  }
+  .admin-toolbar label { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .admin-toolbar input[type=text] {
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; width: 140px;
+  }
+  .admin-hint { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.6; }
+  .admin-tree-wrap { display: flex; gap: 16px; }
+  .admin-tree { flex: 1; }
+  .admin-tree ul { list-style: none; margin: 0; padding-left: 22px; }
+  .admin-tree > ul { padding-left: 0; }
+  .admin-node {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--navy-100); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; margin: 4px 0; cursor: grab; font-size: 13px;
+  }
+  .admin-node.dragging { opacity: 0.4; }
+  .admin-node.drop-target { outline: 2px dashed var(--coral); background: #fff1ef; }
+  .admin-node .level-chip {
+    font-size: 10px; color: #fff; background: var(--navy-600); border-radius: 999px; padding: 1px 7px;
+  }
+  .admin-node .code { color: var(--muted); font-size: 11px; }
+  .root-dropzone {
+    border: 2px dashed var(--border); border-radius: var(--radius); padding: 16px;
+    text-align: center; color: var(--muted); font-size: 12.5px; margin-bottom: 14px;
+  }
+  .root-dropzone.drop-target { border-color: var(--coral); color: var(--coral-dark); background: #fff8f7; }
+
+  @media (max-width: 900px) {
+    #view-mode, #admin-mode { flex-direction: column; }
+    .sidebar { width: 100%; position: static; max-height: none; }
+    .area-grid { grid-template-columns: 1fr; }
+    .item-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="title">부서 건강도 설문 대시보드<span class="round-badge" id="round-badge">-</span></div>
+  <div class="mode-switch">
+    <button id="btn-mode-view" class="active">조회 모드</button>
+    <button id="btn-mode-admin">관리자 모드</button>
+  </div>
+  <div class="file-controls">
+    <button class="btn ghost" id="btn-load-survey">부서 데이터 불러오기</button>
+    <input type="file" id="file-survey" accept="application/json">
+  </div>
+</header>
+
+<main>
+
+  <!-- ===================== VIEW MODE ===================== -->
+  <div id="view-mode">
+    <aside class="sidebar">
+      <h3>조직도</h3>
+      <div class="tree" id="sidebar-tree"></div>
+    </aside>
+    <div class="content">
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <div id="dept-panel"></div>
+    </div>
+  </div>
+
+  <!-- ===================== ADMIN MODE ===================== -->
+  <div id="admin-mode" hidden>
+    <div class="admin-panel">
+      <div class="admin-toolbar">
+        <button class="btn ghost" id="btn-load-orgmap">이전 회차 불러오기</button>
+        <input type="file" id="file-orgmap" accept="application/json">
+        <label>새 회차 이름</label>
+        <input type="text" id="round-name-input" placeholder="예: 2026Q3">
+        <button class="btn coral" id="btn-save-orgmap">현재 회차로 저장</button>
+        <span style="color:var(--muted); font-size:12px;" id="admin-status"></span>
+      </div>
+      <div class="admin-hint">
+        부서 노드를 드래그해서 다른 부서 위에 놓으면 그 부서의 하위 조직으로 이동합니다.
+        A컬럼의 부서레벨은 참고용 숫자일 뿐이며, 실제 상하위 관계는 이 화면에서 구성한 트리 기준으로 계산됩니다.
+      </div>
+      <div class="root-dropzone" id="root-dropzone">최상위 부서로 만들려면 여기로 드래그하세요</div>
+      <div class="admin-tree-wrap">
+        <div class="admin-tree" id="admin-tree"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+/* =========================================================
+   Schema: area -> item -> question-count.
+   Must stay in sync with config/schema.json (source of truth
+   for the xlwings loader / dummy data generator).
+   ========================================================= */
+const AREA_DEFS = [
+  { key: "즐거운일", items: [
+    { key: "몰입", qCount: 3 },
+    { key: "효율", qCount: 3 },
+    { key: "성장", qCount: 3 },
+    { key: "직무만족", qCount: 1 },
+  ]},
+  { key: "함께하는동료", items: [
+    { key: "협력", qCount: 3 },
+    { key: "존중", qCount: 3 },
+    { key: "성과", qCount: 3 },
+    { key: "부서만족", qCount: 1 },
+  ]},
+  { key: "자랑스러운회사", items: [
+    { key: "신뢰", qCount: 3 },
+    { key: "소통", qCount: 3 },
+    { key: "공정", qCount: 3 },
+    { key: "회사만족", qCount: 1 },
+  ]},
+];
+const NO_DATA_MARKER = "-";
+
+/* =========================================================
+   Embedded dummy data (generated by scripts/generate_dummy_data.py).
+   Replace at runtime via the file pickers once real data is
+   exported from Excel / a real org map has been drawn.
+   ========================================================= */
+const DUMMY_SURVEY_DATA = [
+  {
+    "dept_level": 1,
+    "dept_name": "전사",
+    "dept_code": "C000",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E93810",
+    "leader_name": "이민준",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "제품본부",
+    "dept_code": "H100",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E46048",
+    "leader_name": "최하은",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "영업본부",
+    "dept_code": "H200",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E28289",
+    "leader_name": "이시우",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "지원본부",
+    "dept_code": "H300",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E21395",
+    "leader_name": "조민준",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 2,
+    "dept_name": "감사본부",
+    "dept_code": "H400",
+    "target_count": 8,
+    "response_count": 5,
+    "response_rate": 0.625,
+    "leader_id": "E28726",
+    "leader_name": "정지훈",
+    "area_scores": {
+      "즐거운일": 71.3,
+      "함께하는동료": 74.0,
+      "자랑스러운회사": 75.4
+    },
+    "area_yoy": {
+      "즐거운일": 3.7,
+      "함께하는동료": -3.4,
+      "자랑스러운회사": -2.2
+    },
+    "item_scores": {
+      "몰입": 73.0,
+      "효율": 74.6,
+      "성장": 76.7,
+      "직무만족": 64.0,
+      "협력": 83.1,
+      "존중": 71.2,
+      "성과": 85.4,
+      "부서만족": 83.4,
+      "신뢰": 83.0,
+      "소통": 85.7,
+      "공정": 71.0,
+      "회사만족": 75.8
+    },
+    "question_scores": {
+      "몰입_1": 73.2,
+      "몰입_2": 70.2,
+      "몰입_3": 68.9,
+      "효율_1": 74.4,
+      "효율_2": 76.4,
+      "효율_3": 71.6,
+      "성장_1": 81.1,
+      "성장_2": 79.1,
+      "성장_3": 68.1,
+      "직무만족_1": 64.8,
+      "협력_1": 85.6,
+      "협력_2": 65.9,
+      "협력_3": 90.5,
+      "존중_1": 60.3,
+      "존중_2": 74.5,
+      "존중_3": 74.1,
+      "성과_1": 82.7,
+      "성과_2": 76.7,
+      "성과_3": 93.1,
+      "부서만족_1": 83.6,
+      "신뢰_1": 91.2,
+      "신뢰_2": 78.9,
+      "신뢰_3": 84.0,
+      "소통_1": 96.2,
+      "소통_2": 89.5,
+      "소통_3": 87.8,
+      "공정_1": 77.6,
+      "공정_2": 67.0,
+      "공정_3": 70.2,
+      "회사만족_1": 82.2
+    }
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "개발실",
+    "dept_code": "R110",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E42325",
+    "leader_name": "정채원",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "디자인실",
+    "dept_code": "R120",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E66155",
+    "leader_name": "조수아",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "국내영업실",
+    "dept_code": "R210",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E38746",
+    "leader_name": "박시우",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "해외영업실",
+    "dept_code": "R220",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E74686",
+    "leader_name": "이민준",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 3,
+    "dept_name": "경영지원실",
+    "dept_code": "R310",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E24371",
+    "leader_name": "박지훈",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "백엔드팀",
+    "dept_code": "T111",
+    "target_count": 0,
+    "response_count": 0,
+    "response_rate": 0.0,
+    "leader_id": "E99192",
+    "leader_name": "조채원",
+    "area_scores": {},
+    "area_yoy": {},
+    "item_scores": {},
+    "question_scores": {}
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "프론트팀",
+    "dept_code": "T112",
+    "target_count": 15,
+    "response_count": 12,
+    "response_rate": 0.8,
+    "leader_id": "E92719",
+    "leader_name": "김하은",
+    "area_scores": {
+      "즐거운일": 76.1,
+      "함께하는동료": 68.3,
+      "자랑스러운회사": 69.9
+    },
+    "area_yoy": {
+      "즐거운일": -3.9,
+      "함께하는동료": 2.5,
+      "자랑스러운회사": -1.6
+    },
+    "item_scores": {
+      "몰입": 78.5,
+      "효율": 84.1,
+      "성장": 79.3,
+      "직무만족": 93.4,
+      "협력": 75.7,
+      "존중": 80.1,
+      "성과": 84.8,
+      "부서만족": 81.5,
+      "신뢰": 63.1,
+      "소통": 73.4,
+      "공정": 72.6,
+      "회사만족": 72.9
+    },
+    "question_scores": {
+      "몰입_1": 78.9,
+      "몰입_2": 76.8,
+      "몰입_3": 69.1,
+      "효율_1": 77.0,
+      "효율_2": 90.7,
+      "효율_3": 89.3,
+      "성장_1": 79.1,
+      "성장_2": 76.8,
+      "성장_3": 81.8,
+      "직무만족_1": 87.1,
+      "협력_1": 75.9,
+      "협력_2": 64.3,
+      "협력_3": 88.9,
+      "존중_1": 84.5,
+      "존중_2": 77.9,
+      "존중_3": 79.1,
+      "성과_1": 69.6,
+      "성과_2": 81.8,
+      "성과_3": 84.2,
+      "부서만족_1": 80.3,
+      "신뢰_1": 53.5,
+      "신뢰_2": 72.2,
+      "신뢰_3": 58.8,
+      "소통_1": 67.5,
+      "소통_2": 70.7,
+      "소통_3": 68.3,
+      "공정_1": 74.0,
+      "공정_2": 73.7,
+      "공정_3": 73.1,
+      "회사만족_1": 72.5
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "UX팀",
+    "dept_code": "T121",
+    "target_count": 20,
+    "response_count": 19,
+    "response_rate": 0.95,
+    "leader_id": "E34356",
+    "leader_name": "이채원",
+    "area_scores": {
+      "즐거운일": 83.8,
+      "함께하는동료": 67.0,
+      "자랑스러운회사": 79.1
+    },
+    "area_yoy": {
+      "즐거운일": -0.3,
+      "함께하는동료": 3.1,
+      "자랑스러운회사": -4.0
+    },
+    "item_scores": {
+      "몰입": 93.3,
+      "효율": 81.7,
+      "성장": 91.6,
+      "직무만족": 85.1,
+      "협력": 69.8,
+      "존중": 73.1,
+      "성과": 72.1,
+      "부서만족": 77.6,
+      "신뢰": 66.8,
+      "소통": 67.3,
+      "공정": 71.8,
+      "회사만족": 69.8
+    },
+    "question_scores": {
+      "몰입_1": 87.3,
+      "몰입_2": 96.4,
+      "몰입_3": 92.1,
+      "효율_1": 86.7,
+      "효율_2": 85.2,
+      "효율_3": 75.3,
+      "성장_1": 94.0,
+      "성장_2": 97.7,
+      "성장_3": 87.3,
+      "직무만족_1": 90.9,
+      "협력_1": 68.0,
+      "협력_2": 69.2,
+      "협력_3": 81.2,
+      "존중_1": 83.5,
+      "존중_2": 67.9,
+      "존중_3": 76.6,
+      "성과_1": 70.4,
+      "성과_2": 73.3,
+      "성과_3": 59.5,
+      "부서만족_1": 79.0,
+      "신뢰_1": 85.8,
+      "신뢰_2": 61.6,
+      "신뢰_3": 57.8,
+      "소통_1": 62.7,
+      "소통_2": 82.4,
+      "소통_3": 60.7,
+      "공정_1": 79.2,
+      "공정_2": 74.6,
+      "공정_3": 60.1,
+      "회사만족_1": 72.2
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "1팀",
+    "dept_code": "T211",
+    "target_count": 18,
+    "response_count": 16,
+    "response_rate": 0.889,
+    "leader_id": "E29536",
+    "leader_name": "김수아",
+    "area_scores": {
+      "즐거운일": 72.3,
+      "함께하는동료": 70.5,
+      "자랑스러운회사": 91.2
+    },
+    "area_yoy": {
+      "즐거운일": -0.8,
+      "함께하는동료": 0.2,
+      "자랑스러운회사": -3.0
+    },
+    "item_scores": {
+      "몰입": 74.8,
+      "효율": 71.3,
+      "성장": 79.8,
+      "직무만족": 79.2,
+      "협력": 71.6,
+      "존중": 80.8,
+      "성과": 75.6,
+      "부서만족": 62.3,
+      "신뢰": 80.8,
+      "소통": 93.0,
+      "공정": 85.4,
+      "회사만족": 87.2
+    },
+    "question_scores": {
+      "몰입_1": 80.8,
+      "몰입_2": 72.4,
+      "몰입_3": 70.3,
+      "효율_1": 69.0,
+      "효율_2": 50.4,
+      "효율_3": 76.9,
+      "성장_1": 81.6,
+      "성장_2": 78.5,
+      "성장_3": 93.7,
+      "직무만족_1": 75.2,
+      "협력_1": 63.5,
+      "협력_2": 58.1,
+      "협력_3": 60.2,
+      "존중_1": 81.3,
+      "존중_2": 78.1,
+      "존중_3": 89.2,
+      "성과_1": 77.8,
+      "성과_2": 81.6,
+      "성과_3": 80.3,
+      "부서만족_1": 56.5,
+      "신뢰_1": 77.3,
+      "신뢰_2": 67.8,
+      "신뢰_3": 81.7,
+      "소통_1": 96.5,
+      "소통_2": 92.9,
+      "소통_3": 93.5,
+      "공정_1": 81.9,
+      "공정_2": 85.0,
+      "공정_3": 77.8,
+      "회사만족_1": 87.3
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "2팀",
+    "dept_code": "T212",
+    "target_count": 22,
+    "response_count": 19,
+    "response_rate": 0.864,
+    "leader_id": "E97900",
+    "leader_name": "최수아",
+    "area_scores": {
+      "즐거운일": 86.4,
+      "함께하는동료": 64.5,
+      "자랑스러운회사": 78.9
+    },
+    "area_yoy": {
+      "즐거운일": 1.7,
+      "함께하는동료": 0.6,
+      "자랑스러운회사": 4.7
+    },
+    "item_scores": {
+      "몰입": 79.8,
+      "효율": 81.7,
+      "성장": 71.9,
+      "직무만족": 81.2,
+      "협력": 69.5,
+      "존중": 79.3,
+      "성과": 67.8,
+      "부서만족": 71.1,
+      "신뢰": 79.3,
+      "소통": 75.9,
+      "공정": 77.8,
+      "회사만족": 76.9
+    },
+    "question_scores": {
+      "몰입_1": 83.7,
+      "몰입_2": 77.8,
+      "몰입_3": 85.4,
+      "효율_1": 78.5,
+      "효율_2": 83.7,
+      "효율_3": 91.0,
+      "성장_1": 67.2,
+      "성장_2": 63.3,
+      "성장_3": 71.9,
+      "직무만족_1": 80.0,
+      "협력_1": 73.7,
+      "협력_2": 82.3,
+      "협력_3": 63.0,
+      "존중_1": 80.8,
+      "존중_2": 88.0,
+      "존중_3": 75.4,
+      "성과_1": 68.6,
+      "성과_2": 62.3,
+      "성과_3": 58.8,
+      "부서만족_1": 70.4,
+      "신뢰_1": 78.7,
+      "신뢰_2": 87.2,
+      "신뢰_3": 81.0,
+      "소통_1": 69.9,
+      "소통_2": 84.6,
+      "소통_3": 60.0,
+      "공정_1": 80.9,
+      "공정_2": 75.5,
+      "공정_3": 84.0,
+      "회사만족_1": 80.1
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "아시아팀",
+    "dept_code": "T221",
+    "target_count": 28,
+    "response_count": 19,
+    "response_rate": 0.679,
+    "leader_id": "E83259",
+    "leader_name": "강지우",
+    "area_scores": {
+      "즐거운일": 75.6,
+      "함께하는동료": 78.3,
+      "자랑스러운회사": 69.1
+    },
+    "area_yoy": {
+      "즐거운일": -1.9,
+      "함께하는동료": -1.0,
+      "자랑스러운회사": -3.7
+    },
+    "item_scores": {
+      "몰입": 87.6,
+      "효율": 79.6,
+      "성장": 78.8,
+      "직무만족": 88.3,
+      "협력": 77.1,
+      "존중": 77.2,
+      "성과": 71.0,
+      "부서만족": 71.7,
+      "신뢰": 72.1,
+      "소통": 76.6,
+      "공정": 76.3,
+      "회사만족": 76.3
+    },
+    "question_scores": {
+      "몰입_1": 84.3,
+      "몰입_2": 94.4,
+      "몰입_3": 82.8,
+      "효율_1": 79.5,
+      "효율_2": 78.1,
+      "효율_3": 85.8,
+      "성장_1": 73.3,
+      "성장_2": 74.9,
+      "성장_3": 80.3,
+      "직무만족_1": 82.1,
+      "협력_1": 80.8,
+      "협력_2": 73.5,
+      "협력_3": 73.1,
+      "존중_1": 68.2,
+      "존중_2": 77.8,
+      "존중_3": 81.1,
+      "성과_1": 77.8,
+      "성과_2": 72.4,
+      "성과_3": 69.1,
+      "부서만족_1": 68.8,
+      "신뢰_1": 72.3,
+      "신뢰_2": 71.7,
+      "신뢰_3": 71.6,
+      "소통_1": 73.8,
+      "소통_2": 73.3,
+      "소통_3": 78.3,
+      "공정_1": 76.1,
+      "공정_2": 76.4,
+      "공정_3": 88.0,
+      "회사만족_1": 67.9
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "인사팀",
+    "dept_code": "T311",
+    "target_count": 22,
+    "response_count": 21,
+    "response_rate": 0.955,
+    "leader_id": "E46471",
+    "leader_name": "조도윤",
+    "area_scores": {
+      "즐거운일": 83.6,
+      "함께하는동료": 77.3,
+      "자랑스러운회사": 89.0
+    },
+    "area_yoy": {
+      "즐거운일": 3.4,
+      "함께하는동료": 2.8,
+      "자랑스러운회사": -2.6
+    },
+    "item_scores": {
+      "몰입": 81.2,
+      "효율": 91.6,
+      "성장": 88.0,
+      "직무만족": 88.6,
+      "협력": 60.7,
+      "존중": 76.6,
+      "성과": 73.1,
+      "부서만족": 76.7,
+      "신뢰": 93.3,
+      "소통": 79.6,
+      "공정": 83.8,
+      "회사만족": 90.2
+    },
+    "question_scores": {
+      "몰입_1": 80.2,
+      "몰입_2": 76.9,
+      "몰입_3": 74.7,
+      "효율_1": 95.0,
+      "효율_2": 96.4,
+      "효율_3": 94.0,
+      "성장_1": 84.7,
+      "성장_2": 93.9,
+      "성장_3": 98.0,
+      "직무만족_1": 90.4,
+      "협력_1": 66.4,
+      "협력_2": 55.3,
+      "협력_3": 46.5,
+      "존중_1": 66.9,
+      "존중_2": 84.7,
+      "존중_3": 80.4,
+      "성과_1": 77.0,
+      "성과_2": 60.9,
+      "성과_3": 68.3,
+      "부서만족_1": 69.9,
+      "신뢰_1": 91.4,
+      "신뢰_2": 82.0,
+      "신뢰_3": 98.0,
+      "소통_1": 86.3,
+      "소통_2": 75.2,
+      "소통_3": 78.3,
+      "공정_1": 86.3,
+      "공정_2": 81.0,
+      "공정_3": 83.5,
+      "회사만족_1": 83.7
+    }
+  },
+  {
+    "dept_level": 4,
+    "dept_name": "재무팀",
+    "dept_code": "T312",
+    "target_count": 18,
+    "response_count": 15,
+    "response_rate": 0.833,
+    "leader_id": "E21359",
+    "leader_name": "정지우",
+    "area_scores": {
+      "즐거운일": 90.0,
+      "함께하는동료": 69.3,
+      "자랑스러운회사": 88.5
+    },
+    "area_yoy": {
+      "즐거운일": -4.6,
+      "함께하는동료": "-",
+      "자랑스러운회사": 3.4
+    },
+    "item_scores": {
+      "몰입": 84.4,
+      "효율": 82.5,
+      "성장": 85.2,
+      "직무만족": 76.7,
+      "협력": 71.1,
+      "존중": 65.6,
+      "성과": 70.1,
+      "부서만족": 65.1,
+      "신뢰": 81.1,
+      "소통": 88.5,
+      "공정": 95.5,
+      "회사만족": 86.1
+    },
+    "question_scores": {
+      "몰입_1": 91.2,
+      "몰입_2": 95.4,
+      "몰입_3": 94.0,
+      "효율_1": 88.3,
+      "효율_2": 70.3,
+      "효율_3": 73.0,
+      "성장_1": 81.7,
+      "성장_2": 82.2,
+      "성장_3": 92.5,
+      "직무만족_1": 70.7,
+      "협력_1": 69.7,
+      "협력_2": 61.6,
+      "협력_3": 64.9,
+      "존중_1": 60.8,
+      "존중_2": 61.2,
+      "존중_3": 55.7,
+      "성과_1": 69.4,
+      "성과_2": 61.5,
+      "성과_3": 68.3,
+      "부서만족_1": 64.3,
+      "신뢰_1": 81.5,
+      "신뢰_2": 72.9,
+      "신뢰_3": 90.7,
+      "소통_1": 91.6,
+      "소통_2": 79.9,
+      "소통_3": 87.3,
+      "공정_1": 90.5,
+      "공정_2": 84.6,
+      "공정_3": 98.0,
+      "회사만족_1": 90.1
+    }
+  },
+  {
+    "dept_level": 5,
+    "dept_name": "플랫폼파트",
+    "dept_code": "P1111",
+    "target_count": 13,
+    "response_count": 12,
+    "response_rate": 0.923,
+    "leader_id": "E24953",
+    "leader_name": "이예준",
+    "area_scores": {
+      "즐거운일": 75.9,
+      "함께하는동료": 81.5,
+      "자랑스러운회사": 71.0
+    },
+    "area_yoy": {
+      "즐거운일": -2.2,
+      "함께하는동료": 3.8,
+      "자랑스러운회사": 0.2
+    },
+    "item_scores": {
+      "몰입": 77.3,
+      "효율": 77.9,
+      "성장": 79.1,
+      "직무만족": 82.8,
+      "협력": 80.0,
+      "존중": 87.8,
+      "성과": 80.2,
+      "부서만족": 78.5,
+      "신뢰": 70.0,
+      "소통": 72.3,
+      "공정": 65.2,
+      "회사만족": 79.1
+    },
+    "question_scores": {
+      "몰입_1": 77.6,
+      "몰입_2": 83.4,
+      "몰입_3": 73.1,
+      "효율_1": 76.3,
+      "효율_2": 71.5,
+      "효율_3": 82.9,
+      "성장_1": 79.5,
+      "성장_2": 88.0,
+      "성장_3": 73.9,
+      "직무만족_1": 90.4,
+      "협력_1": 75.1,
+      "협력_2": 81.5,
+      "협력_3": 81.2,
+      "존중_1": 87.1,
+      "존중_2": 73.1,
+      "존중_3": 86.4,
+      "성과_1": 78.9,
+      "성과_2": 88.1,
+      "성과_3": 80.7,
+      "부서만족_1": 81.0,
+      "신뢰_1": 67.0,
+      "신뢰_2": 78.9,
+      "신뢰_3": 71.3,
+      "소통_1": 68.5,
+      "소통_2": 86.2,
+      "소통_3": 65.8,
+      "공정_1": 70.1,
+      "공정_2": 65.6,
+      "공정_3": 59.8,
+      "회사만족_1": 78.9
+    }
+  },
+  {
+    "dept_level": 5,
+    "dept_name": "데이터파트",
+    "dept_code": "P1112",
+    "target_count": 13,
+    "response_count": 9,
+    "response_rate": 0.692,
+    "leader_id": "E85392",
+    "leader_name": "김도윤",
+    "area_scores": {
+      "즐거운일": 88.5,
+      "함께하는동료": 65.9,
+      "자랑스러운회사": 69.7
+    },
+    "area_yoy": {
+      "즐거운일": -3.8,
+      "함께하는동료": 1.1,
+      "자랑스러운회사": -2.7
+    },
+    "item_scores": {
+      "몰입": 75.6,
+      "효율": 74.1,
+      "성장": 80.0,
+      "직무만족": 82.7,
+      "협력": 68.9,
+      "존중": 64.4,
+      "성과": 75.2,
+      "부서만족": 73.2,
+      "신뢰": 65.4,
+      "소통": 65.1,
+      "공정": 72.2,
+      "회사만족": 79.7
+    },
+    "question_scores": {
+      "몰입_1": 77.6,
+      "몰입_2": 87.2,
+      "몰입_3": 61.6,
+      "효율_1": 68.4,
+      "효율_2": 73.2,
+      "효율_3": 59.6,
+      "성장_1": 88.6,
+      "성장_2": 82.0,
+      "성장_3": 83.1,
+      "직무만족_1": 82.8,
+      "협력_1": 73.1,
+      "협력_2": 66.4,
+      "협력_3": 59.9,
+      "존중_1": 51.8,
+      "존중_2": 66.4,
+      "존중_3": 56.2,
+      "성과_1": 72.6,
+      "성과_2": 66.9,
+      "성과_3": 72.8,
+      "부서만족_1": 71.2,
+      "신뢰_1": 74.7,
+      "신뢰_2": 60.9,
+      "신뢰_3": 63.3,
+      "소통_1": 56.5,
+      "소통_2": 71.7,
+      "소통_3": 62.6,
+      "공정_1": 73.0,
+      "공정_2": 67.4,
+      "공정_3": 74.4,
+      "회사만족_1": 88.0
+    }
+  }
+];
+const DUMMY_ORG_MAP = {
+  "round": "2026Q2",
+  "based_on": null,
+  "map": {
+    "C000": null,
+    "H100": "C000",
+    "H200": "C000",
+    "H300": "C000",
+    "H400": "C000",
+    "R110": "H100",
+    "R120": "H100",
+    "R210": "H200",
+    "R220": "H200",
+    "R310": "H300",
+    "T111": "R110",
+    "T112": "R110",
+    "T121": "R120",
+    "T211": "R210",
+    "T212": "R210",
+    "T221": "R220",
+    "T311": "R310",
+    "T312": "R310",
+    "P1111": "T111",
+    "P1112": "T111"
+  }
+};
+
+/* =========================================================
+   State
+   ========================================================= */
+const state = {
+  mode: "view",
+  surveyData: DUMMY_SURVEY_DATA,
+  recordsByCode: {},
+  orgMap: { ...DUMMY_ORG_MAP.map },
+  round: DUMMY_ORG_MAP.round,
+  basedOn: DUMMY_ORG_MAP.based_on,
+  selectedCode: null,
+  expandedItems: new Set(),
+  expandedTreeNodes: new Set(),
+  dragCode: null,
+};
+
+function indexRecords() {
+  state.recordsByCode = {};
+  for (const r of state.surveyData) state.recordsByCode[r.dept_code] = r;
+}
+
+function childrenByParent() {
+  const map = {};
+  for (const [code, parent] of Object.entries(state.orgMap)) {
+    if (parent) (map[parent] = map[parent] || []).push(code);
+  }
+  return map;
+}
+
+function rootCodes() {
+  return Object.keys(state.orgMap).filter(code => !state.orgMap[code]);
+}
+
+function isDescendant(ancestorCode, code) {
+  let cur = code;
+  const guard = new Set();
+  while (state.orgMap[cur]) {
+    cur = state.orgMap[cur];
+    if (cur === ancestorCode) return true;
+    if (guard.has(cur)) return false; // corrupt map, bail out
+    guard.add(cur);
+  }
+  return false;
+}
+
+/* =========================================================
+   Rollup: response-count-weighted average up the org tree.
+   Mirrors scripts/schema_utils.py rollup().
+   ========================================================= */
+function weightedAverage(pairs) {
+  let total = 0, weight = 0;
+  for (const [value, w] of pairs) {
+    if (value === null || value === undefined || value === NO_DATA_MARKER) continue;
+    if (w === null || w === undefined) continue;
+    total += value * w;
+    weight += w;
+  }
+  return weight === 0 ? null : total / weight;
+}
+
+let rollupCache = {};
+function invalidateRollupCache() { rollupCache = {}; }
+
+function rollup(code) {
+  if (code in rollupCache) return rollupCache[code];
+  const children = childrenByParent()[code] || [];
+  const own = state.recordsByCode[code];
+
+  if (children.length === 0) {
+    rollupCache[code] = own || null;
+    return rollupCache[code];
+  }
+
+  const childResults = children.map(rollup).filter(Boolean);
+  if (childResults.length === 0) {
+    rollupCache[code] = own || null;
+    return rollupCache[code];
+  }
+
+  const targetCount = childResults.reduce((s, c) => s + (c.target_count || 0), 0);
+  const responseCount = childResults.reduce((s, c) => s + (c.response_count || 0), 0);
+  const responseRate = targetCount ? responseCount / targetCount : null;
+
+  const areaScores = {};
+  const areaKeys = AREA_DEFS.map(a => a.key);
+  for (const key of areaKeys) {
+    areaScores[key] = weightedAverage(childResults.map(c => [c.area_scores?.[key], c.response_count]));
+  }
+
+  const itemScores = {};
+  for (const area of AREA_DEFS) for (const item of area.items) {
+    itemScores[item.key] = weightedAverage(childResults.map(c => [c.item_scores?.[item.key], c.response_count]));
+  }
+
+  const questionScores = {};
+  for (const area of AREA_DEFS) for (const item of area.items) {
+    for (let i = 1; i <= item.qCount; i++) {
+      const qKey = `${item.key}_${i}`;
+      questionScores[qKey] = weightedAverage(childResults.map(c => [c.question_scores?.[qKey], c.response_count]));
+    }
+  }
+
+  const areaYoy = own && own.area_yoy && Object.keys(own.area_yoy).length
+    ? own.area_yoy
+    : Object.fromEntries(areaKeys.map(k => [k, NO_DATA_MARKER]));
+
+  const base = own || childResults[0];
+  rollupCache[code] = {
+    dept_level: base.dept_level,
+    dept_name: base.dept_name,
+    dept_code: code,
+    target_count: targetCount,
+    response_count: responseCount,
+    response_rate: responseRate,
+    leader_id: own ? own.leader_id : null,
+    leader_name: own ? own.leader_name : null,
+    area_scores: areaScores,
+    area_yoy: areaYoy,
+    item_scores: itemScores,
+    question_scores: questionScores,
+    _rolled_up: true,
+  };
+  return rollupCache[code];
+}
+
+/* =========================================================
+   Rendering helpers
+   ========================================================= */
+function fmtScore(v) {
+  if (v === null || v === undefined || v === NO_DATA_MARKER) return "-";
+  return v.toFixed(1);
+}
+function fmtPct(v) {
+  if (v === null || v === undefined) return "-";
+  return (v * 100).toFixed(1) + "%";
+}
+function yoyHtml(v) {
+  if (v === null || v === undefined || v === NO_DATA_MARKER) {
+    return `<span class="yoy none">데이터 없음</span>`;
+  }
+  const cls = v > 0 ? "up" : v < 0 ? "down" : "none";
+  const arrow = v > 0 ? "▲" : v < 0 ? "▼" : "－";
+  return `<span class="yoy ${cls}">${arrow} 전년비 ${Math.abs(v).toFixed(1)}</span>`;
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function breadcrumbPath(code) {
+  const path = [];
+  let cur = code;
+  const guard = new Set();
+  while (cur) {
+    path.unshift(cur);
+    const parent = state.orgMap[cur];
+    if (!parent || guard.has(parent)) break;
+    guard.add(parent);
+    cur = parent;
+  }
+  return path;
+}
+
+function renderBreadcrumb() {
+  const el = document.getElementById("breadcrumb");
+  if (!state.selectedCode) { el.innerHTML = ""; return; }
+  const path = breadcrumbPath(state.selectedCode);
+  el.innerHTML = path.map((code, i) => {
+    const rec = state.recordsByCode[code];
+    const name = rec ? escapeHtml(rec.dept_name) : code;
+    const isLast = i === path.length - 1;
+    const sep = i > 0 ? `<span class="sep">›</span>` : "";
+    return `${sep}<span class="crumb ${isLast ? "current" : ""}" data-code="${code}">${name}</span>`;
+  }).join("");
+  el.querySelectorAll(".crumb:not(.current)").forEach(elm => {
+    elm.addEventListener("click", () => { state.selectedCode = elm.dataset.code; renderViewMode(); });
+  });
+}
+
+function renderTreeNode(code, container, opts) {
+  const rec = state.recordsByCode[code];
+  const kids = childrenByParent()[code] || [];
+  const li = document.createElement("li");
+
+  const row = document.createElement("div");
+  row.className = "node-row" + (code === state.selectedCode ? " selected" : "");
+
+  const toggle = document.createElement("span");
+  if (kids.length) {
+    toggle.className = "toggle";
+    toggle.textContent = state.expandedTreeNodes.has(code) ? "▾" : "▸";
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (state.expandedTreeNodes.has(code)) state.expandedTreeNodes.delete(code);
+      else state.expandedTreeNodes.add(code);
+      renderSidebarTree();
+    });
+  } else {
+    toggle.className = "leaf-dot";
+    toggle.textContent = "·";
+  }
+  row.appendChild(toggle);
+
+  const label = document.createElement("span");
+  label.textContent = rec ? rec.dept_name : code;
+  row.appendChild(label);
+
+  row.addEventListener("click", () => {
+    state.selectedCode = code;
+    state.expandedTreeNodes.add(code);
+    renderViewMode();
+  });
+
+  li.appendChild(row);
+
+  if (kids.length && state.expandedTreeNodes.has(code)) {
+    const ul = document.createElement("ul");
+    for (const k of kids) renderTreeNode(k, ul, opts);
+    li.appendChild(ul);
+  }
+  container.appendChild(li);
+}
+
+function renderSidebarTree() {
+  const el = document.getElementById("sidebar-tree");
+  el.innerHTML = "";
+  const ul = document.createElement("ul");
+  for (const root of rootCodes()) renderTreeNode(root, ul, {});
+  el.appendChild(ul);
+}
+
+function renderDeptPanel() {
+  const el = document.getElementById("dept-panel");
+  if (!state.selectedCode) { el.innerHTML = `<div class="no-data-note">좌측 조직도에서 부서를 선택하세요.</div>`; return; }
+
+  const data = rollup(state.selectedCode);
+  const rec = state.recordsByCode[state.selectedCode];
+  if (!data) {
+    el.innerHTML = `<div class="no-data-note">이 부서에는 아직 설문 데이터가 없습니다.</div>`;
+    return;
+  }
+
+  const levelLabel = rec ? `레벨 ${rec.dept_level}` : "";
+  const responsePct = data.target_count ? Math.min(100, (data.response_count / data.target_count) * 100) : 0;
+
+  let html = "";
+  html += `<div class="dept-header">
+    <div>
+      <div><span class="name">${escapeHtml(data.dept_name)}</span><span class="code">${escapeHtml(data.dept_code)}</span><span class="level-badge">${levelLabel}</span></div>
+      <div class="meta">부서장: ${escapeHtml(data.leader_name || "-")} ${data.leader_id ? `(${escapeHtml(data.leader_id)})` : ""}</div>
+      <div class="response-bar"><div style="width:${responsePct}%"></div></div>
+      <div class="meta">대상 ${data.target_count}명 / 응답 ${data.response_count}명</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="num">${fmtPct(data.response_rate)}</div><div class="label">응답률</div></div>
+    </div>
+  </div>`;
+
+  html += `<div class="section-title">영역별 점수</div>`;
+  html += `<div class="area-grid">`;
+  for (const area of AREA_DEFS) {
+    html += `<div class="area-card">
+      <div class="area-name">${escapeHtml(area.key)}</div>
+      <div class="area-score">${fmtScore(data.area_scores[area.key])}</div>
+      <div class="yoy-wrap">${yoyHtml(data.area_yoy ? data.area_yoy[area.key] : null)}</div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="section-title">항목별 점수 (클릭 시 문항 펼치기)</div>`;
+  html += `<div class="item-grid">`;
+  for (const area of AREA_DEFS) {
+    for (const item of area.items) {
+      const expanded = state.expandedItems.has(item.key);
+      html += `<div class="item-card ${expanded ? "expanded" : ""}" data-item="${item.key}">
+        <span class="chevron">${expanded ? "▾" : "▸"}</span>
+        <div class="item-area-tag">${escapeHtml(area.key)}</div>
+        <div class="item-name">${escapeHtml(item.key)}</div>
+        <div class="item-score">${fmtScore(data.item_scores[item.key])}</div>
+      </div>`;
+      if (expanded) {
+        html += `<div class="question-list">`;
+        for (let i = 1; i <= item.qCount; i++) {
+          const qKey = `${item.key}_${i}`;
+          const label = item.qCount === 1 ? item.key : `${item.key} 문항${i}`;
+          html += `<div class="q-row"><span class="q-label">${escapeHtml(label)}</span><span class="q-score">${fmtScore(data.question_scores[qKey])}</span></div>`;
+        }
+        html += `</div>`;
+      }
+    }
+  }
+  html += `</div>`;
+
+  el.innerHTML = html;
+
+  el.querySelectorAll(".item-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const key = card.dataset.item;
+      if (state.expandedItems.has(key)) state.expandedItems.delete(key);
+      else state.expandedItems.add(key);
+      renderDeptPanel();
+    });
+  });
+}
+
+function renderViewMode() {
+  renderSidebarTree();
+  renderBreadcrumb();
+  renderDeptPanel();
+}
+
+/* =========================================================
+   Admin mode: drag & drop org tree editor
+   ========================================================= */
+function renderAdminNode(code, container) {
+  const rec = state.recordsByCode[code];
+  const kids = childrenByParent()[code] || [];
+  const li = document.createElement("li");
+
+  const row = document.createElement("div");
+  row.className = "admin-node";
+  row.draggable = true;
+  row.dataset.code = code;
+  row.innerHTML = `<span class="level-chip">Lv${rec ? rec.dept_level : "?"}</span>
+    <span>${escapeHtml(rec ? rec.dept_name : code)}</span>
+    <span class="code">${escapeHtml(code)}</span>`;
+
+  row.addEventListener("dragstart", (e) => {
+    state.dragCode = code;
+    row.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  });
+  row.addEventListener("dragend", () => {
+    row.classList.remove("dragging");
+    document.querySelectorAll(".drop-target").forEach(n => n.classList.remove("drop-target"));
+  });
+  row.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (state.dragCode && state.dragCode !== code && !isDescendant(state.dragCode, code)) {
+      row.classList.add("drop-target");
+    }
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
+  row.addEventListener("drop", (e) => {
+    e.preventDefault();
+    row.classList.remove("drop-target");
+    reparent(state.dragCode, code);
+  });
+
+  li.appendChild(row);
+
+  if (kids.length) {
+    const ul = document.createElement("ul");
+    for (const k of kids) renderAdminNode(k, ul);
+    li.appendChild(ul);
+  }
+  container.appendChild(li);
+}
+
+function reparent(code, newParent) {
+  if (!code || code === newParent) return;
+  if (newParent !== null && isDescendant(code, newParent)) {
+    alert("하위 부서를 상위 부서로 이동할 수 없습니다.");
+    return;
+  }
+  state.orgMap[code] = newParent;
+  invalidateRollupCache();
+  renderAdminMode();
+  document.getElementById("admin-status").textContent = `저장되지 않은 변경사항 있음`;
+}
+
+function renderAdminMode() {
+  const el = document.getElementById("admin-tree");
+  el.innerHTML = "";
+  const ul = document.createElement("ul");
+  for (const root of rootCodes()) renderAdminNode(root, ul);
+  el.appendChild(ul);
+
+  document.getElementById("round-name-input").value = state.round || "";
+  document.getElementById("round-badge").textContent = state.round || "-";
+}
+
+function setupRootDropzone() {
+  const zone = document.getElementById("root-dropzone");
+  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drop-target"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drop-target"));
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("drop-target");
+    reparent(state.dragCode, null);
+  });
+}
+
+/* =========================================================
+   File I/O
+   ========================================================= */
+function downloadJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function readJsonFile(file, cb) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      cb(JSON.parse(reader.result));
+    } catch (err) {
+      alert("JSON 파일을 읽는 중 오류가 발생했습니다: " + err.message);
+    }
+  };
+  reader.readAsText(file, "utf-8");
+}
+
+/* =========================================================
+   Wiring
+   ========================================================= */
+function setMode(mode) {
+  state.mode = mode;
+  document.getElementById("view-mode").hidden = mode !== "view";
+  document.getElementById("admin-mode").hidden = mode !== "admin";
+  document.getElementById("btn-mode-view").classList.toggle("active", mode === "view");
+  document.getElementById("btn-mode-admin").classList.toggle("active", mode === "admin");
+  if (mode === "view") renderViewMode();
+  else renderAdminMode();
+}
+
+document.getElementById("btn-mode-view").addEventListener("click", () => setMode("view"));
+document.getElementById("btn-mode-admin").addEventListener("click", () => setMode("admin"));
+
+document.getElementById("btn-load-survey").addEventListener("click", () => document.getElementById("file-survey").click());
+document.getElementById("file-survey").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  readJsonFile(file, (json) => {
+    state.surveyData = Array.isArray(json) ? json : json.records || [];
+    indexRecords();
+    invalidateRollupCache();
+    if (state.mode === "view") renderViewMode(); else renderAdminMode();
+  });
+  e.target.value = "";
+});
+
+document.getElementById("btn-load-orgmap").addEventListener("click", () => document.getElementById("file-orgmap").click());
+document.getElementById("file-orgmap").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  readJsonFile(file, (json) => {
+    state.orgMap = { ...(json.map || json) };
+    state.basedOn = state.round;
+    state.round = json.round ? `${json.round}(불러옴)` : state.round;
+    invalidateRollupCache();
+    renderAdminMode();
+    document.getElementById("admin-status").textContent = `"${file.name}" 불러옴 — 변경 후 새 회차로 저장하세요`;
+  });
+  e.target.value = "";
+});
+
+document.getElementById("btn-save-orgmap").addEventListener("click", () => {
+  const name = document.getElementById("round-name-input").value.trim();
+  if (!name) { alert("새 회차 이름을 입력하세요 (예: 2026Q3)"); return; }
+  const payload = { round: name, based_on: state.basedOn || null, map: state.orgMap, saved_at: new Date().toISOString() };
+  downloadJson(payload, `org_map_${name}.json`);
+  state.round = name;
+  document.getElementById("round-badge").textContent = name;
+  document.getElementById("admin-status").textContent = `org_map_${name}.json 저장됨`;
+});
+
+setupRootDropzone();
+
+/* =========================================================
+   Init
+   ========================================================= */
+indexRecords();
+state.selectedCode = rootCodes()[0] || null;
+if (state.selectedCode) state.expandedTreeNodes.add(state.selectedCode);
+document.getElementById("round-badge").textContent = state.round || "-";
+renderViewMode();
+</script>
+</body>
+</html>

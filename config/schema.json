@@ -1,0 +1,52 @@
+{
+  "sheet_index": 3,
+  "sheet_comment": "0-based index into wb.sheets -> the 4th sheet in the workbook",
+  "header_rows": 3,
+  "data_start_row": 4,
+  "columns": {
+    "dept_level": "A",
+    "dept_name": "B",
+    "dept_code": "C",
+    "target_count": "D",
+    "response_count": "E",
+    "response_rate": "F",
+    "leader_id": "G",
+    "leader_name": "H"
+  },
+  "no_data_marker": "-",
+  "areas": [
+    {
+      "key": "즐거운일",
+      "score_col": "I",
+      "yoy_col": "L",
+      "items": [
+        { "key": "몰입", "score_col": "O", "question_cols": ["AA", "AB", "AC"] },
+        { "key": "효율", "score_col": "P", "question_cols": ["AD", "AE", "AF"] },
+        { "key": "성장", "score_col": "Q", "question_cols": ["AG", "AH", "AI"] },
+        { "key": "직무만족", "score_col": "R", "question_cols": ["AJ"] }
+      ]
+    },
+    {
+      "key": "함께하는동료",
+      "score_col": "J",
+      "yoy_col": "M",
+      "items": [
+        { "key": "협력", "score_col": "S", "question_cols": ["AK", "AL", "AM"] },
+        { "key": "존중", "score_col": "T", "question_cols": ["AN", "AO", "AP"] },
+        { "key": "성과", "score_col": "U", "question_cols": ["AQ", "AR", "AS"] },
+        { "key": "부서만족", "score_col": "V", "question_cols": ["AT"] }
+      ]
+    },
+    {
+      "key": "자랑스러운회사",
+      "score_col": "K",
+      "yoy_col": "N",
+      "items": [
+        { "key": "신뢰", "score_col": "W", "question_cols": ["AU", "AV", "AW"] },
+        { "key": "소통", "score_col": "X", "question_cols": ["AX", "AY", "AZ"] },
+        { "key": "공정", "score_col": "Y", "question_cols": ["BA", "BB", "BC"] },
+        { "key": "회사만족", "score_col": "Z", "question_cols": ["BD"] }
+      ]
+    }
+  ]
+}
