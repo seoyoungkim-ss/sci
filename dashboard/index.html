@@ -271,6 +271,7 @@
   .admin-node-row.drop-after { box-shadow: 0 3px 0 0 var(--coral); }
   .admin-node {
     display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: grab;
+    -webkit-user-drag: element; /* older WebKit/Safari needs this explicitly on top of draggable="true" */
   }
   .admin-node .level-chip {
     font-size: 10px; color: #fff; background: var(--navy-600); border-radius: 999px; padding: 1px 7px;
@@ -3372,8 +3373,25 @@ function renderAdminNode(code, container) {
     state.dragCode = code;
     wrapper.classList.add("dragging");
     e.dataTransfer.effectAllowed = "move";
+    // Some browsers (notably Firefox) refuse to recognize a drag as
+    // valid — silently failing to fire "drop" on any target — unless
+    // dataTransfer carries actual data. We don't need the payload
+    // ourselves (state.dragCode already tracks it), but setting it is
+    // required for those browsers to complete the gesture at all.
+    // Wrapped defensively: state.dragCode/the dragging class are
+    // already set above, so a locked-down environment that throws
+    // here (e.g. a policy restricting dataTransfer) still leaves the
+    // rest of the drag usable instead of aborting it.
+    try { e.dataTransfer.setData("text/plain", code); } catch (err) { /* best-effort only */ }
   });
   label.addEventListener("dragend", () => {
+    // Always clear this, drop or no drop — otherwise a cancelled or
+    // misfired drag (dropped outside any target, Escape pressed, or a
+    // browser quirk that skips a later dragstart) leaves state.dragCode
+    // pointing at a stale department, and a future drop could silently
+    // act on that old value instead of whatever the user is currently
+    // dragging.
+    state.dragCode = null;
     wrapper.classList.remove("dragging");
     document.querySelectorAll(".drop-target, .drop-before, .drop-after").forEach(n => n.classList.remove("drop-target", "drop-before", "drop-after"));
   });
@@ -3385,6 +3403,7 @@ function renderAdminNode(code, container) {
   // area too.
   wrapper.addEventListener("dragover", (e) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
     wrapper.classList.remove("drop-target", "drop-before", "drop-after");
     if (!state.dragCode || state.dragCode === code || isDescendant(state.dragCode, code)) return;
     const rect = wrapper.getBoundingClientRect();
@@ -3512,11 +3531,16 @@ function renderAdminMode() {
 
 function setupRootDropzone() {
   const zone = document.getElementById("root-dropzone");
-  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drop-target"); });
+  zone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    zone.classList.add("drop-target");
+  });
   zone.addEventListener("dragleave", () => zone.classList.remove("drop-target"));
   zone.addEventListener("drop", (e) => {
     e.preventDefault();
     zone.classList.remove("drop-target");
+    if (!state.dragCode) return;
     reparent(state.dragCode, null);
   });
 }
