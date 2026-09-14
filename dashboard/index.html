@@ -358,6 +358,13 @@
   .report-checkbox { font-size: 12.5px; color: var(--navy-800); display: flex; align-items: center; gap: 5px; cursor: pointer; }
   .report-hint { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.6; }
   #report-copy-status { font-size: 12px; color: var(--positive); font-weight: 600; }
+  .report-filters { display: flex; gap: 24px; flex-wrap: wrap; background: var(--paper); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; }
+  .filter-group { min-width: 220px; }
+  .filter-group-title { font-size: 11.5px; font-weight: 700; color: var(--navy-800); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 8px; }
+  .filter-group-actions { font-weight: 500; text-transform: none; letter-spacing: 0; margin-left: 8px; }
+  .filter-group-actions a { color: var(--coral-dark); text-decoration: none; cursor: pointer; }
+  .filter-group-actions a:hover { text-decoration: underline; }
+  .filter-group > div:not(.filter-group-title) { display: flex; flex-wrap: wrap; gap: 4px 14px; }
   .report-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
   table.report-table { border-collapse: collapse; font-size: 11.5px; white-space: nowrap; }
   table.report-table th, table.report-table td { padding: 6px 9px; border: 1px solid var(--border); text-align: right; }
@@ -440,11 +447,23 @@
     <div class="report-panel">
       <div class="report-toolbar">
         <button class="btn coral" id="btn-copy-report">표 전체 복사 (엑셀·워드용)</button>
-        <label class="report-checkbox"><input type="checkbox" id="report-include-questions"> 문항별 점수(30개) 포함</label>
-        <label class="report-checkbox"><input type="checkbox" id="report-include-yoy" checked> 전년비 포함</label>
         <span id="report-copy-status"></span>
       </div>
-      <div class="report-hint">모든 조직(전사~최하위 부서)과 부서장 정보를 한 표에 담았습니다. "표 전체 복사" 클릭 후 엑셀/워드에 Ctrl+V로 붙여넣으면 표 형태 그대로 들어갑니다.</div>
+      <div class="report-hint">모든 조직(전사~최하위 부서)과 부서장 정보를 한 표에 담았습니다. 아래 체크박스로 원하는 레벨·항목만 바로 골라서 보고, "표 전체 복사"로 엑셀/워드에 Ctrl+V 붙여넣으세요.</div>
+      <div class="report-filters" id="report-filters">
+        <div class="filter-group">
+          <div class="filter-group-title">표시할 레벨
+            <span class="filter-group-actions"><a href="#" data-action="levels-all">전체선택</a> · <a href="#" data-action="levels-none">전체해제</a></span>
+          </div>
+          <div id="report-level-checks"></div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title">표시할 항목
+            <span class="filter-group-actions"><a href="#" data-action="columns-all">전체선택</a> · <a href="#" data-action="columns-none">전체해제</a></span>
+          </div>
+          <div id="report-column-checks"></div>
+        </div>
+      </div>
       <div id="report-table-wrap" class="report-table-wrap"></div>
     </div>
   </div>
@@ -485,6 +504,16 @@ const NO_DATA_MARKER = "-";
 const FINAL_SATISFACTION_ITEM = "회사만족"; // key-driver regression target (column Z item)
 const DRIVER_ITEMS = AREA_DEFS.flatMap(a => a.items.map(i => i.key)).filter(k => k !== FINAL_SATISFACTION_ITEM);
 const ALL_ITEM_KEYS = AREA_DEFS.flatMap(a => a.items.map(i => i.key)); // all 12 items, spec table order
+const REPORT_COLUMN_GROUPS = [
+  { key: "hierarchy", label: "조직 계층(레벨1~N)" },
+  { key: "code", label: "부서코드" },
+  { key: "leader", label: "부서장 정보" },
+  { key: "headcount", label: "인원/응답률" },
+  { key: "area", label: "영역별 점수" },
+  { key: "areaYoy", label: "영역별 전년비" },
+  { key: "item", label: "항목별 점수(12개)" },
+  { key: "question", label: "문항별 점수(30개)" },
+];
 const ANALYSIS = {
   MIN_RESPONSES: 5,                          // below this, a dept is excluded from regression/variance/leadership stats ("표본 부족")
   MIN_LEAF_SAMPLE_FOR_REGRESSION: DRIVER_ITEMS.length + 5, // need comfortably more observations than predictors
@@ -2410,6 +2439,10 @@ const state = {
   expandedItems: new Set(),
   expandedTreeNodes: new Set(),
   dragCode: null,
+  report: {
+    columns: { hierarchy: true, code: true, leader: true, headcount: true, area: true, areaYoy: true, item: true, question: false },
+    levels: null, // lazily filled with every level found in the data (null = not yet initialized)
+  },
 };
 
 function indexRecords() {
@@ -3332,52 +3365,84 @@ function buildReportRows() {
   return { rows, maxDepth };
 }
 
-function renderReportMode() {
-  const includeQuestions = document.getElementById("report-include-questions").checked;
-  const includeYoy = document.getElementById("report-include-yoy").checked;
-  const { rows, maxDepth } = buildReportRows();
-  const levelHeaders = Array.from({ length: maxDepth }, (_, i) => `레벨${i + 1}`);
-
-  const headCells = [
-    ...levelHeaders,
-    "부서코드", "부서장명", "부서장ID", "대상인원", "응답인원", "응답률",
-  ];
-  for (const area of AREA_DEFS) {
-    headCells.push(area.key);
-    if (includeYoy) headCells.push(`${area.key} 전년비`);
+/** Turns the checked column groups into an ordered list of column
+ * definitions ({ label, align, get }), so the header row and every
+ * body row are built from the exact same source (no index bookkeeping
+ * to keep in sync between the two). */
+function buildReportColumns(cols, maxDepth) {
+  const columns = [];
+  if (cols.hierarchy) {
+    for (let i = 0; i < maxDepth; i++) {
+      columns.push({ label: `레벨${i + 1}`, align: "text", get: (rec, path) => path[i] ?? "" });
+    }
+  } else {
+    columns.push({ label: "부서명", align: "text", get: rec => rec.dept_name });
   }
-  headCells.push(...ALL_ITEM_KEYS);
-  if (includeQuestions) {
+  if (cols.code) columns.push({ label: "부서코드", align: "text", get: rec => rec.dept_code });
+  if (cols.leader) {
+    columns.push({ label: "부서장명", align: "text", get: rec => rec.leader_name || "-" });
+    columns.push({ label: "부서장ID", align: "text", get: rec => rec.leader_id || "-" });
+  }
+  if (cols.headcount) {
+    columns.push({ label: "대상인원", align: "num", get: rec => rec.target_count });
+    columns.push({ label: "응답인원", align: "num", get: rec => rec.response_count });
+    columns.push({ label: "응답률", align: "num", get: rec => fmtPct(rec.response_rate) });
+  }
+  if (cols.area) {
+    for (const area of AREA_DEFS) columns.push({ label: area.key, align: "num", get: rec => fmtScore(rec.area_scores?.[area.key]) });
+  }
+  if (cols.areaYoy) {
+    for (const area of AREA_DEFS) columns.push({ label: `${area.key} 전년비`, align: "num", get: rec => fmtYoyPlain(rec.area_yoy?.[area.key]) });
+  }
+  if (cols.item) {
+    for (const item of ALL_ITEM_KEYS) columns.push({ label: item, align: "num", get: rec => fmtScore(rec.item_scores?.[item]) });
+  }
+  if (cols.question) {
     for (const area of AREA_DEFS) for (const item of area.items) {
-      for (let i = 1; i <= item.qCount; i++) headCells.push(`${item.key}_${i}`);
-    }
-  }
-
-  const textColIdx = new Set([...levelHeaders.map((_, i) => i), levelHeaders.length + 1, levelHeaders.length + 2]); // level cols + 부서장명 + 부서장ID
-
-  const bodyRows = rows.map(({ rec, path }) => {
-    const cells = [];
-    for (let i = 0; i < maxDepth; i++) cells.push(path[i] ?? "");
-    cells.push(rec.dept_code, rec.leader_name || "-", rec.leader_id || "-", rec.target_count, rec.response_count, fmtPct(rec.response_rate));
-    for (const area of AREA_DEFS) {
-      cells.push(fmtScore(rec.area_scores?.[area.key]));
-      if (includeYoy) cells.push(fmtYoyPlain(rec.area_yoy?.[area.key]));
-    }
-    for (const item of ALL_ITEM_KEYS) cells.push(fmtScore(rec.item_scores?.[item]));
-    if (includeQuestions) {
-      for (const area of AREA_DEFS) for (const item of area.items) {
-        for (let i = 1; i <= item.qCount; i++) cells.push(fmtScore(rec.question_scores?.[`${item.key}_${i}`]));
+      for (let i = 1; i <= item.qCount; i++) {
+        const qKey = `${item.key}_${i}`;
+        columns.push({ label: qKey, align: "num", get: rec => fmtScore(rec.question_scores?.[qKey]) });
       }
     }
-    return cells;
-  });
+  }
+  return columns;
+}
 
-  const thead = `<thead><tr>${headCells.map((h, i) => `<th class="${textColIdx.has(i) ? "text-col" : ""}">${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
-  const tbody = `<tbody>${bodyRows.map(cells =>
-    `<tr>${cells.map((c, i) => `<td class="${textColIdx.has(i) ? "text-col" : ""} ${i < maxDepth ? "level-cell" : ""}">${escapeHtml(String(c))}</td>`).join("")}</tr>`
+function renderReportFilters(availableLevels) {
+  document.getElementById("report-level-checks").innerHTML = availableLevels.map(l =>
+    `<label class="report-checkbox"><input type="checkbox" data-role="level" data-level="${l}" ${state.report.levels.has(l) ? "checked" : ""}> 레벨${l}</label>`
+  ).join("");
+  document.getElementById("report-column-checks").innerHTML = REPORT_COLUMN_GROUPS.map(g =>
+    `<label class="report-checkbox"><input type="checkbox" data-role="column" data-key="${g.key}" ${state.report.columns[g.key] ? "checked" : ""}> ${escapeHtml(g.label)}</label>`
+  ).join("");
+}
+
+function renderReportMode() {
+  const { rows: allRows, maxDepth } = buildReportRows();
+  const availableLevels = [...new Set(allRows.map(r => r.rec.dept_level))].sort((a, b) => a - b);
+  if (!state.report.levels) state.report.levels = new Set(availableLevels);
+  renderReportFilters(availableLevels);
+
+  const rows = allRows.filter(r => state.report.levels.has(r.rec.dept_level));
+  const wrap = document.getElementById("report-table-wrap");
+  if (!rows.length) {
+    wrap.innerHTML = `<div class="note-box">선택된 레벨에 해당하는 부서가 없습니다. 위에서 레벨을 선택하세요.</div>`;
+    return;
+  }
+
+  const columns = buildReportColumns(state.report.columns, maxDepth);
+  if (!columns.length) {
+    wrap.innerHTML = `<div class="note-box">표시할 항목을 하나 이상 선택하세요.</div>`;
+    return;
+  }
+  const hierarchyColCount = state.report.columns.hierarchy ? maxDepth : 1;
+
+  const thead = `<thead><tr>${columns.map(c => `<th class="${c.align === "text" ? "text-col" : ""}">${escapeHtml(c.label)}</th>`).join("")}</tr></thead>`;
+  const tbody = `<tbody>${rows.map(({ rec, path }) =>
+    `<tr>${columns.map((c, i) => `<td class="${c.align === "text" ? "text-col" : ""} ${i < hierarchyColCount ? "level-cell" : ""}">${escapeHtml(String(c.get(rec, path)))}</td>`).join("")}</tr>`
   ).join("")}</tbody>`;
 
-  document.getElementById("report-table-wrap").innerHTML = `<table class="report-table" id="report-table">${thead}${tbody}</table>`;
+  wrap.innerHTML = `<table class="report-table" id="report-table">${thead}${tbody}</table>`;
 }
 
 function tableToTsv(tableEl) {
@@ -3477,8 +3542,32 @@ document.getElementById("btn-mode-admin").addEventListener("click", () => setMod
 document.getElementById("btn-mode-report").addEventListener("click", () => setMode("report"));
 
 document.getElementById("btn-copy-report").addEventListener("click", copyReportTable);
-document.getElementById("report-include-questions").addEventListener("change", renderReportMode);
-document.getElementById("report-include-yoy").addEventListener("change", renderReportMode);
+
+document.getElementById("report-filters").addEventListener("change", (e) => {
+  const input = e.target.closest("input[type=checkbox]");
+  if (!input) return;
+  if (input.dataset.role === "column") {
+    state.report.columns[input.dataset.key] = input.checked;
+  } else if (input.dataset.role === "level") {
+    const level = Number(input.dataset.level);
+    if (input.checked) state.report.levels.add(level);
+    else state.report.levels.delete(level);
+  }
+  renderReportMode();
+});
+
+document.getElementById("report-filters").addEventListener("click", (e) => {
+  const link = e.target.closest("a[data-action]");
+  if (!link) return;
+  e.preventDefault();
+  switch (link.dataset.action) {
+    case "levels-all": state.report.levels = new Set(buildReportRows().rows.map(r => r.rec.dept_level)); break;
+    case "levels-none": state.report.levels = new Set(); break;
+    case "columns-all": for (const g of REPORT_COLUMN_GROUPS) state.report.columns[g.key] = true; break;
+    case "columns-none": for (const g of REPORT_COLUMN_GROUPS) state.report.columns[g.key] = false; break;
+  }
+  renderReportMode();
+});
 
 document.getElementById("view-tabs").addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
