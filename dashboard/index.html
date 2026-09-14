@@ -2372,37 +2372,46 @@ function isDescendant(ancestorCode, code) {
  * code and that parent still exist in the new data. Otherwise it
  * needs a fallback placement — and rather than dumping it in as its
  * own disconnected root (which used to leave admin mode showing a
- * flat wall of N unplaced root nodes on every fresh load), it
- * defaults under whichever department has dept_level 1, since that's
- * the company's actual top-level unit (레벨1을 최상위부서로) and
- * everything else is presumably under it somewhere. Only the 레벨1
- * department itself (and anything else when there isn't exactly one
- * unambiguous 레벨1 row) still falls back to a true root. Without
- * this reconciliation at all, loading survey data whose codes don't
- * match the previous org map (e.g. the very first real-data load,
- * replacing the embedded dummy codes) leaves admin mode showing only
- * the old, now-dataless codes — the tree it renders is built from
- * state.orgMap, not from the survey data. Returns whether any code
- * had to fall back because its old parent disappeared, and what the
- * default top-level code was (if any), so callers can tell the admin
- * what happened. */
+ * flat wall of N unplaced root nodes on every fresh load), a 레벨2
+ * department defaults under whichever department has dept_level 1,
+ * since "레벨2는 레벨1 산하"는 거의 항상 확실합니다. 레벨3 이하는
+ * 여러 레벨2 부서 중 정확히 어디 속하는지 자동으로 알 수 없으므로
+ * (잘못 추측하면 오히려 더 헷갈리므로) 최상위로 남겨 관리자가 직접
+ * 배치하도록 합니다. Only the 레벨1 department itself (and anything
+ * else when there isn't exactly one unambiguous 레벨1 row) still
+ * falls back to a true root. Without this reconciliation at all,
+ * loading survey data whose codes don't match the previous org map
+ * (e.g. the very first real-data load, replacing the embedded dummy
+ * codes) leaves admin mode showing only the old, now-dataless codes —
+ * the tree it renders is built from state.orgMap, not from the survey
+ * data. Returns whether any code had to fall back because its old
+ * parent disappeared, how many 레벨2 departments were auto-nested,
+ * and what the default top-level code was (if any), so callers can
+ * tell the admin what happened. */
 function reconcileOrgMapWithSurveyData(records) {
   const newCodes = new Set(records.map(r => r.dept_code));
+  const levelByCode = Object.fromEntries(records.map(r => [r.dept_code, r.dept_level]));
   const level1Codes = records.filter(r => r.dept_level === 1).map(r => r.dept_code);
   const defaultTopCode = level1Codes.length === 1 ? level1Codes[0] : null;
 
   const rebuilt = {};
   let droppedToRoot = 0;
+  let autoNestedUnderTop = 0;
   for (const code of newCodes) {
     const existingParent = state.orgMap[code];
     if (existingParent && newCodes.has(existingParent)) {
       rebuilt[code] = existingParent;
       continue;
     }
-    rebuilt[code] = (defaultTopCode && code !== defaultTopCode) ? defaultTopCode : null;
+    if (defaultTopCode && code !== defaultTopCode && levelByCode[code] === 2) {
+      rebuilt[code] = defaultTopCode;
+      autoNestedUnderTop++;
+    } else {
+      rebuilt[code] = null; // 레벨1 itself, or 레벨3+ awaiting manual placement by the admin
+    }
     if (existingParent) droppedToRoot++; // had a real parent before that's now gone
   }
-  return { orgMap: rebuilt, droppedToRoot, defaultTopCode, isFirstLoad: !Object.keys(state.orgMap).some(c => newCodes.has(c)) };
+  return { orgMap: rebuilt, droppedToRoot, defaultTopCode, autoNestedUnderTop, isFirstLoad: !Object.keys(state.orgMap).some(c => newCodes.has(c)) };
 }
 
 /* =========================================================
@@ -3685,9 +3694,9 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
     }
     state.surveyData = records;
     indexRecords();
-    const { orgMap, droppedToRoot, defaultTopCode, isFirstLoad } = reconcileOrgMapWithSurveyData(records);
+    const { orgMap, droppedToRoot, defaultTopCode, autoNestedUnderTop, isFirstLoad } = reconcileOrgMapWithSurveyData(records);
     state.orgMap = orgMap;
-    state.selectedCode = rootCodes()[0] || null;
+    state.selectedCode = defaultTopCode || rootCodes()[0] || null;
     state.expandedTreeNodes = new Set(state.selectedCode ? [state.selectedCode] : []);
     invalidateRollupCache();
     companyBetasCache = null;
@@ -3695,11 +3704,11 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
     const topName = defaultTopCode ? (state.recordsByCode[defaultTopCode]?.dept_name || defaultTopCode) : null;
     if (isFirstLoad) {
       statusEl.textContent = topName
-        ? `"${file.name}" 불러옴 (${records.length}개 부서) · 조직도가 없어 레벨1 부서 "${topName}" 아래로 나머지가 전부 배치됐습니다 — 관리자 모드에서 원하는 구조로 재배치하세요`
+        ? `"${file.name}" 불러옴 (${records.length}개 부서) · 레벨2 부서 ${autoNestedUnderTop}개는 레벨1 부서 "${topName}" 아래로 자동 배치됐고, 레벨3 이하는 최상위 상태입니다 — 관리자 모드에서 배치하세요`
         : `"${file.name}" 불러옴 (${records.length}개 부서) · 조직도가 없어 전부 최상위로 표시됩니다 (레벨1 부서가 없거나 여러 개라 자동 배치 불가) — 관리자 모드에서 드래그로 배치하세요`;
     } else if (droppedToRoot > 0) {
       statusEl.textContent = topName
-        ? `"${file.name}" 불러옴 (${records.length}개 부서) · ${droppedToRoot}개 부서가 상위 조직을 잃어 레벨1 부서 "${topName}" 아래로 이동됨 — 관리자 모드에서 확인하세요`
+        ? `"${file.name}" 불러옴 (${records.length}개 부서) · ${droppedToRoot}개 부서가 상위 조직을 잃었습니다 (레벨2는 "${topName}" 아래로 자동 배치, 레벨3 이하는 최상위) — 관리자 모드에서 확인하세요`
         : `"${file.name}" 불러옴 (${records.length}개 부서) · ${droppedToRoot}개 부서가 상위 조직을 잃어 최상위로 이동됨 — 관리자 모드에서 확인하세요`;
     } else {
       statusEl.textContent = `"${file.name}" 불러옴 (${records.length}개 부서)`;
@@ -3728,7 +3737,7 @@ document.getElementById("file-orgmap").addEventListener("change", (e) => {
     renderAdminMode();
     const topName = defaultTopCode ? (state.recordsByCode[defaultTopCode]?.dept_name || defaultTopCode) : null;
     document.getElementById("admin-status").textContent = droppedToRoot > 0
-      ? `"${file.name}" 불러옴 — ${droppedToRoot}개 부서가 현재 데이터와 맞지 않아 ${topName ? `레벨1 부서 "${topName}" 아래로` : "최상위로"} 이동됨. 변경 후 새 회차로 저장하세요`
+      ? `"${file.name}" 불러옴 — ${droppedToRoot}개 부서가 현재 데이터와 맞지 않습니다 (${topName ? `레벨2는 "${topName}" 아래로 자동 배치, 레벨3 이하는 최상위` : "전부 최상위로 이동"}). 변경 후 새 회차로 저장하세요`
       : `"${file.name}" 불러옴 — 변경 후 새 회차로 저장하세요`;
   });
   e.target.value = "";
