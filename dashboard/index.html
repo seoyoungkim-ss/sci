@@ -235,6 +235,11 @@
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 16px; flex: 1;
   }
+  .dummy-data-banner {
+    background: #fff8f7; border: 1px solid var(--negative); border-radius: var(--radius);
+    color: var(--coral-dark); font-size: 12.5px; font-weight: 600; line-height: 1.6;
+    padding: 10px 14px; margin-bottom: 14px;
+  }
   .admin-toolbar {
     display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;
     padding-bottom: 14px; border-bottom: 1px solid var(--border);
@@ -489,6 +494,11 @@
   <!-- ===================== ADMIN MODE ===================== -->
   <div id="admin-mode" hidden>
     <div class="admin-panel">
+      <div class="dummy-data-banner" id="dummy-data-banner" hidden>
+        ⚠ 아직 실제 부서 데이터를 불러오지 않아, 내장된 예시(더미) 데이터의 조직도를 보고 있습니다.
+        상단 "부서 데이터 불러오기"로 실제 설문 데이터를 먼저 불러오세요 — 지금 상태로 저장하면
+        더미 코드(C000, H100 등)가 그대로 저장됩니다.
+      </div>
       <div class="admin-toolbar">
         <button class="btn" id="btn-load-orgmap">이전 회차 불러오기</button>
         <input type="file" id="file-orgmap" accept=".json,application/json">
@@ -2432,6 +2442,17 @@ const DUMMY_ORG_MAP = {
   }
 };
 
+/** True until "부서 데이터 불러오기" replaces state.surveyData with a
+ * real file — used to warn before saving an org map (or otherwise
+ * treating the current screen as real), since a fresh page load shows
+ * the embedded dummy org tree until real data is loaded, and it's an
+ * easy mistake to go straight to 관리자 모드 and save/export that
+ * dummy structure without noticing (그 결과 저장된 JSON에 "C000",
+ * "H100" 같은 더미 코드가 그대로 들어가게 됨). */
+function isUsingDummyData() {
+  return state.surveyData === DUMMY_SURVEY_DATA;
+}
+
 /* =========================================================
    State
    ========================================================= */
@@ -4282,6 +4303,7 @@ function renderAdminMode() {
 
   document.getElementById("round-name-input").value = state.round || "";
   document.getElementById("round-badge").textContent = state.round || "-";
+  document.getElementById("dummy-data-banner").hidden = !isUsingDummyData();
   syncHqBenchmarkInputs();
 }
 
@@ -4808,6 +4830,15 @@ document.getElementById("file-orgmap").addEventListener("change", (e) => {
 document.getElementById("btn-save-orgmap").addEventListener("click", () => {
   const name = document.getElementById("round-name-input").value.trim();
   if (!name) { alert("새 회차 이름을 입력하세요 (예: 2026Q3)"); return; }
+  if (isUsingDummyData()) {
+    const proceed = confirm(
+      "아직 실제 부서 데이터를 불러오지 않았습니다 — 지금 저장하면 내장된 예시(더미) 데이터의 " +
+      "조직도(C000, H100 같은 더미 코드)가 그대로 저장됩니다.\n\n" +
+      "계속하시겠습니까? (취소 후 상단 \"부서 데이터 불러오기\"로 실제 설문 데이터를 먼저 " +
+      "불러오는 것을 권장합니다.)"
+    );
+    if (!proceed) return;
+  }
   const payload = { round: name, based_on: state.basedOn || null, map: state.orgMap, order: state.orgOrder, saved_at: new Date().toISOString() };
   downloadJson(payload, `org_map_${name}.json`);
   state.round = name;
