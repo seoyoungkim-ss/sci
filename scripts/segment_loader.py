@@ -205,11 +205,18 @@ def reshape_for_dashboard(bucket, categories_in_order):
     return out
 
 
-def parse_segment_sheet(values):
+def parse_segment_sheet(values, verbose=False):
     """values: 2D list from sheet.used_range.value. Returns
     (dept_name, {대분류: {"categories": [...], "areas": {...}, "items": {...}}})
     or (None, {}) if this doesn't look like a 문항별 결과 sheet at all
-    (e.g. the unrelated 4th "마스터 요약" sheet xlwings_loader.py reads)."""
+    (e.g. the unrelated 4th "마스터 요약" sheet xlwings_loader.py reads).
+
+    verbose=True prints a per-sheet breakdown of exactly what got found
+    (which 대분류 and how many 소분류 columns each, how many area/item
+    labels) — turn this on whenever the output "looks limited"/sparse,
+    since it pinpoints whether row 3/4 header parsing missed columns,
+    or the area/item row-label scan (rows 9+) missed rows, rather than
+    leaving that as a silent guess."""
     dept_name = find_dept_name(values)
     if dept_name is None:
         return None, {}
@@ -220,11 +227,24 @@ def parse_segment_sheet(values):
               file=sys.stderr)
         return dept_name, {}
 
-    areas, items, _questions = parse_area_item_rows(values, columns)
+    areas, items, questions = parse_area_item_rows(values, columns)
 
     categories_by_major = {}
     for col_def in columns:
         categories_by_major.setdefault(col_def["major"], []).append(col_def["category"])
+
+    if verbose:
+        print(f"  [{dept_name}] 대분류 {len(categories_by_major)}개, "
+              f"영역 레이블 {len(areas)}개, 항목 레이블 {len(items)}개, 문항 레이블 {len(questions)}개 발견")
+        for major, categories in categories_by_major.items():
+            print(f"    - {major}: {len(categories)}개 소분류 ({', '.join(categories)})")
+        if areas:
+            print(f"    - 영역 레이블: {', '.join(areas.keys())}")
+        if items:
+            print(f"    - 항목 레이블: {', '.join(items.keys())}")
+        if len(areas) < 3:
+            print(f"    !! 영역이 3개(즐거운일/함께하는동료/자랑스러운회사) 미만입니다 — "
+                  f"row_start_1idx(기본 9) 또는 컬럼 A 레이블이 실제 시트와 다를 수 있습니다.")
 
     segments = {}
     for major, categories in categories_by_major.items():
@@ -248,7 +268,7 @@ def load_dept_code_lookup():
     return {}
 
 
-def parse_one_workbook(path, dept_code_by_name, sheet_filter=None):
+def parse_one_workbook(path, dept_code_by_name, sheet_filter=None, verbose=False):
     """Opens a single .xlsx (one department's own file, or a multi-sheet
     workbook holding several departments — both are supported, since a
     "44개 조직별 상세 시트" description could mean either 44 sheets in
@@ -269,7 +289,7 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None):
             values = sheet.used_range.value
             if not values:
                 continue
-            dept_name, segments = parse_segment_sheet(values)
+            dept_name, segments = parse_segment_sheet(values, verbose=verbose)
             if dept_name is None:
                 continue  # not a 문항별 결과 sheet — silently skip (e.g. a master summary sheet)
             dept_code = dept_code_by_name.get(dept_name)
@@ -346,6 +366,11 @@ def main():
                          help="Total department count you expect across all files (전사 포함), e.g. 44 — "
                               "prints a clear mismatch warning naming which survey-data departments never "
                               "got a matching sheet, instead of leaving you to notice a silent gap yourself.")
+    parser.add_argument("--verbose", action="store_true",
+                         help="Print a per-sheet breakdown of exactly what was found (대분류/소분류 column "
+                              "counts, area/item labels) — use this whenever the resulting data looks "
+                              "limited/sparse to see exactly where the header or row parsing came up short, "
+                              "instead of only seeing the final segment count.")
     args = parser.parse_args()
 
     dept_code_by_name = load_dept_code_lookup()
@@ -359,7 +384,7 @@ def main():
 
     departments = {}
     for path in workbook_paths:
-        departments.update(parse_one_workbook(path, dept_code_by_name, args.sheets))
+        departments.update(parse_one_workbook(path, dept_code_by_name, args.sheets, verbose=args.verbose))
 
     out_path = Path(args.out) if args.out else DATA_DIR / "segment_data.json"
     payload = {"departments": departments}
