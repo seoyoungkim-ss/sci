@@ -30,6 +30,24 @@ case the file was opened manually) rather than giving up immediately —
 this keeps a fully automated run working when the direct open
 succeeds, while still letting the manual-open workaround apply on
 whichever files it doesn't.
+
+If the failure is specifically HRESULT 0x800AC472 ("Excel cannot
+access the file because a dialog box is open" — pywin32 reports it as
+pywintypes.com_error with -2146777998 as its first element, same
+number), ignore_read_only_recommended alone didn't cover it: that
+flag only suppresses Excel's OWN built-in read-only prompt, and this
+error means SOME dialog is genuinely up and blocking every COM call —
+most likely a DRM/security add-in's own popup, which no Workbooks.Open
+parameter can suppress since Excel doesn't know it exists.
+_dismiss_blocking_dialogs() finds it and answers it programmatically
+(Enter, i.e. its default button) rather than just sleeping and
+retrying the identical call into the same still-open dialog. This is a
+heuristic: it can't know what the dialog actually says, only that
+whatever button is already focused is what a user tabbing/enter-ing
+through it would trigger — closest to what happens when a person
+double-clicks the file and clicks through without reading it, but the
+title being dismissed is always printed so this is auditable if it
+guesses wrong on some other, unrelated dialog.
 """
 import time
 from pathlib import Path
@@ -50,17 +68,73 @@ def _find_open_book(path):
     return None, None
 
 
-def open_or_attach(path, retries=2, retry_delay=2.0):
+BLOCKING_DIALOG_HRESULT = -2146777998  # 0x800AC472: "a dialog box is open"
+
+
+def _is_blocking_dialog_error(err):
+    return getattr(err, "args", None) and err.args[0] == BLOCKING_DIALOG_HRESULT
+
+
+def _dismiss_blocking_dialogs(pid, timeout=5.0):
+    """Best-effort: finds any visible top-level window belonging to
+    Excel's process (pid) that is a standard Windows dialog box (class
+    "#32770" — the main Excel window itself is a different class) and
+    sends Enter to accept its default button. Returns True if it found
+    and dismissed something. Needs pywin32 (already an xlwings
+    dependency on Windows, so this should always be available there);
+    silently no-ops if it isn't, since this whole thing is only ever a
+    secondary attempt after the plain retries above."""
+    try:
+        import win32con
+        import win32gui
+        import win32process
+    except ImportError:
+        return False
+
+    dismissed = False
+
+    def enum_handler(hwnd, _):
+        nonlocal dismissed
+        if dismissed or not win32gui.IsWindowVisible(hwnd):
+            return
+        try:
+            _, win_pid = win32process.GetWindowThreadProcessId(hwnd)
+        except Exception:
+            return
+        if win_pid != pid:
+            return
+        if win32gui.GetClassName(hwnd) != "#32770":  # standard dialog box class
+            return
+        title = win32gui.GetWindowText(hwnd)
+        print(f"  (Excel 대화상자 감지: '{title}' — 기본 버튼으로 응답 시도)")
+        try:
+            win32gui.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+        win32gui.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
+        win32gui.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+        dismissed = True
+
+    deadline = time.time() + timeout
+    while time.time() < deadline and not dismissed:
+        win32gui.EnumWindows(enum_handler, None)
+        if not dismissed:
+            time.sleep(0.3)
+    return dismissed
+
+
+def open_or_attach(path, retries=3, retry_delay=2.0):
     """Returns (app, book, owns_app). owns_app is True only when this
     call opened a brand-new Excel instance itself (safe to app.quit()
     when done) — an ATTACHED book belongs to whatever Excel window the
     user already had open, so callers must never close() or quit() it,
     only read from it.
 
-    Order: (1) try a direct automated open with the read-only prompt
-    suppressed, retrying a couple of times, (2) if that still fails,
-    look for an already-open copy of this exact file instead of giving
-    up, (3) only then raise, with both attempts' context."""
+    Order per attempt: (1) try a direct automated open with the
+    read-only prompt suppressed, (2) on the specific "dialog box is
+    open" error, try to find and dismiss it before the next retry,
+    (3) after all retries, look for an already-open copy of this exact
+    file instead of giving up, (4) only then raise, with full context."""
     import xlwings as xw
 
     app = xw.App(visible=True)
@@ -77,7 +151,10 @@ def open_or_attach(path, retries=2, retry_delay=2.0):
         except Exception as err:
             last_err = err
             if attempt <= retries:
-                time.sleep(retry_delay)
+                if _is_blocking_dialog_error(err):
+                    _dismiss_blocking_dialogs(app.pid)
+                else:
+                    time.sleep(retry_delay)
 
     # Direct open never succeeded — before giving up, check whether this
     # exact file happens to already be open somewhere (manually opened
