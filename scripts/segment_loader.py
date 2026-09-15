@@ -60,13 +60,22 @@ was written from a text description of the layout, not a sample file:
     — every other cell in the merge comes back None — so both header
     rows are read with a "forward-fill" pass (carry the last non-None
     value rightward across the row).
-  - Each 소분류 spans exactly 2 physical columns: a score column then a
-    YoY column. Like the master sheet's own separate yoy_col, the 2nd
+  - Each 소분류 normally spans 2 physical columns: a score column then a
+    YoY column (like the master sheet's own separate yoy_col, the 2nd
     column is assumed to already BE the precomputed delta — not a 2nd
-    raw year that would need subtracting. If row 5 actually labels the
-    pair as two literal years (e.g. "2025"/"2026") rather than a
-    score/delta pair, this assumption is wrong and this script needs a
-    small fix (subtract the two instead of reading col 2 as-is).
+    raw year that would need subtracting; if row 5 actually labels the
+    pair as two literal years, e.g. "2025"/"2026", this script would
+    need a small fix to subtract the two instead of reading col 2
+    as-is). This width is NOT assumed fixed, though — a category can
+    also be a single score-only column with no YoY at all (a real
+    reported case: "사업부 비교" comparing against several OTHER
+    departments, where each department is its own single column).
+    Column width is detected per category from how many consecutive
+    columns actually share the same Row3/Row4 header pair, so a mix of
+    2-column and 1-column categories in the same row parses correctly
+    without one bad width silently shifting every category after it
+    (see build_column_map()'s docstring for the exact symptom this
+    fixed: half the departments in "사업부 비교" disappearing/mislabeled).
   - Columns D-E ("전체", 세그먼트 미적용 원점수) are skipped — the
     master sheet already covers company-wide numbers. Column scanning
     starts at F (index 6, 1-based) by default.
@@ -131,11 +140,33 @@ def to_number(v):
         return None
 
 
-def build_column_map(values, header_row_1idx=3, sub_row_1idx=4, first_data_col_1idx=6):
+def build_column_map(values, header_row_1idx=3, sub_row_1idx=4, first_data_col_1idx=6, verbose=False):
     """Returns a list of {major, category, score_col, yoy_col} (0-based
-    column indices) for every 소분류 column pair from first_data_col_1idx
-    onward, skipping IGNORED_MAJOR_CATEGORIES and any column whose
-    대분류 can't be read at all."""
+    column indices; yoy_col is None when a category has no separate YoY
+    column) for every 소분류 column from first_data_col_1idx onward,
+    skipping IGNORED_MAJOR_CATEGORIES and any column whose 대분류 can't
+    be read at all.
+
+    Column width is NOT assumed fixed at 2 (score+YoY) for every
+    category. It used to be ("col += 2" every time), on the assumption
+    that Row4's 소분류 label is always merged across exactly a pair of
+    physical columns. That broke as soon as one category didn't fit
+    that shape -- e.g. a "사업부 비교" block where each compared
+    department is its OWN single column with no YoY pair at all (real
+    symptom: category labels showing raw dept codes like "R120"/"T121"
+    instead of every department appearing, because the fixed 2-step
+    silently treated dept N's score column as dept N-1's "YoY" column,
+    dropping every other department and mislabeling the rest). Once one
+    category in the row drifted like that, every category after it in
+    the same row read from the wrong columns too -- exactly the
+    "일부 데이터만 파편적으로 들어간다" symptom reported against real files.
+
+    Instead, this walks column-by-column and measures how many
+    consecutive columns actually share the same (major, sub) header
+    pair (a real run, from Row3/Row4's forward-filled merge) -- a run
+    of 2 is a normal score+YoY pair, a run of 1 is a score-only column
+    (no YoY for that category), and it re-syncs at every category
+    boundary instead of drifting from one bad category onward."""
     major_row = forward_fill(values[header_row_1idx - 1] if len(values) >= header_row_1idx else [])
     sub_row = forward_fill(values[sub_row_1idx - 1] if len(values) >= sub_row_1idx else [])
     n = max(len(major_row), len(sub_row))
@@ -148,13 +179,25 @@ def build_column_map(values, header_row_1idx=3, sub_row_1idx=4, first_data_col_1
         if major is None or str(major).strip() in IGNORED_MAJOR_CATEGORIES:
             col += 1
             continue
+
+        run_end = col
+        while (run_end < n
+               and (major_row[run_end] if run_end < len(major_row) else None) == major
+               and (sub_row[run_end] if run_end < len(sub_row) else None) == sub):
+            run_end += 1
+        run_len = run_end - col
+
+        category = str(sub).strip() if sub not in (None, "") else f"col{col + 1}"
         columns.append({
             "major": str(major).strip(),
-            "category": str(sub).strip() if sub not in (None, "") else f"col{col + 1}",
+            "category": category,
             "score_col": col,
-            "yoy_col": col + 1,
+            "yoy_col": col + 1 if run_len >= 2 else None,
         })
-        col += 2
+        if verbose and run_len > 2:
+            print(f"    !! '{major}/{category}' 컬럼이 {run_len}개 연속으로 동일하게 발견됨 (2개 예상) "
+                  f"-- 앞의 2개만 score/yoy로 사용합니다", file=sys.stderr)
+        col = run_end if run_len > 0 else col + 1
     return columns
 
 
@@ -184,7 +227,8 @@ def parse_area_item_rows(values, columns, row_start_1idx=9):
 
         for col_def in columns:
             score = to_number(row[col_def["score_col"]] if col_def["score_col"] < len(row) else None)
-            yoy = to_number(row[col_def["yoy_col"]] if col_def["yoy_col"] < len(row) else None)
+            yoy_col = col_def["yoy_col"]
+            yoy = to_number(row[yoy_col] if yoy_col is not None and yoy_col < len(row) else None)
             if score is None and yoy is None:
                 continue
             target[col_def["category"]] = {"score": score, "yoy": yoy}
@@ -205,7 +249,7 @@ def reshape_for_dashboard(bucket, categories_in_order):
     return out
 
 
-def parse_sheet_structure(values):
+def parse_sheet_structure(values, verbose=False):
     """The structural half of sheet parsing, with NO requirement that a
     department title be present — just "does this grid of values look
     like a 문항별 결과 data grid, and if so what's in it". Returns
@@ -217,7 +261,7 @@ def parse_sheet_structure(values):
     require that, since a real reported case has the department title
     on one sheet — e.g. a cover "Sheet1" — and the actual data grid on
     a different, title-less sheet — e.g. "Sheet2")."""
-    columns = build_column_map(values)
+    columns = build_column_map(values, verbose=verbose)
     if not columns:
         return [], {}, {}, {}
     areas, items, questions = parse_area_item_rows(values, columns)
@@ -260,7 +304,7 @@ def parse_segment_sheet(values, verbose=False):
     if dept_name is None:
         return None, {}
 
-    columns, areas, items, questions = parse_sheet_structure(values)
+    columns, areas, items, questions = parse_sheet_structure(values, verbose=verbose)
     if not columns:
         print(f"  warning: '{dept_name}' — no segment columns found (row 3/4 headers unreadable?), skipping",
               file=sys.stderr)
@@ -353,10 +397,15 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None, verbose=False
 
         best_segments, best_area_count, best_sheet_name = {}, -1, None
         for sheet_name, values in sheet_values.items():
-            columns, areas, items, questions = parse_sheet_structure(values)
+            columns, areas, items, questions = parse_sheet_structure(values, verbose=verbose)
             if verbose:
-                print(f"  [{fname}:{sheet_name}] 대분류 컬럼 {len(columns)}개, 영역 {len(areas)}개, "
-                      f"항목 {len(items)}개, 문항 {len(questions)}개 발견 (전체 행수: {len(values)})")
+                categories_by_major = {}
+                for col_def in columns:
+                    categories_by_major.setdefault(col_def["major"], []).append(col_def["category"])
+                print(f"  [{fname}:{sheet_name}] 대분류 {len(categories_by_major)}개 (컬럼 {len(columns)}개), "
+                      f"영역 {len(areas)}개, 항목 {len(items)}개, 문항 {len(questions)}개 발견 (전체 행수: {len(values)})")
+                for major, cats in categories_by_major.items():
+                    print(f"    - {major}: {len(cats)}개 ({', '.join(cats)})")
             if len(areas) > best_area_count:
                 best_segments = build_segments_dict(columns, areas, items)
                 best_area_count, best_sheet_name = len(areas), sheet_name
