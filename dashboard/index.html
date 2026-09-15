@@ -660,7 +660,8 @@ const ANALYSIS = {
 /** Top-N sizes and thresholds for each 경영진 요약 (executive summary)
  * section — tune here. */
 const EXEC_SUMMARY = {
-  YOY_DECLINE_TOP_N: 3,
+  YOY_DECLINE_TOP_N: 5,
+  YOY_IMPROVE_TOP_N: 5,
   LOW_RELIABILITY_TOP_N: 3,
   VARIANCE_TOP_N: 1,
   GOOD_SCORE_THRESHOLD: 75,   // Lv2/Lv3 조직별 현황: 종합점수가 이 값 이상이면 "고득점"
@@ -3070,15 +3071,16 @@ function collectNonRootCodes() {
   return codes;
 }
 
-/** "영역별 전년비 하락 Top-N" — per AREA (즐거운일/함께하는동료/자랑
- * 스러운회사 독립적으로), the N departments with the biggest reported
- * YoY decline. Only departments that actually declined (yoy < 0) are
- * eligible, and low-sample departments (< EXEC_SUMMARY.LOW_SAMPLE_
- * THRESHOLD respondents) are excluded since a small team's own YoY
- * figure is too noisy to headline as a company-wide decline — that
- * reliability concern is exactly what computeLowReliabilityTop() below
- * covers instead. Returns { [areaKey]: [{code, name, yoy}, ...] }. */
-function computeAreaYoyDeclineTop(topN) {
+/** "영역별 전년비 하락/상승 Top-N" — per AREA (즐거운일/함께하는동료/
+ * 자랑스러운회사 독립적으로), the N departments with the biggest
+ * reported YoY move in `direction` ("decline": yoy < 0, most negative
+ * first; "improve": yoy > 0, most positive first). Low-sample
+ * departments (< EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD respondents) are
+ * excluded either way since a small team's own YoY figure is too noisy
+ * to headline as a company-wide move — that reliability concern is
+ * exactly what computeLowReliabilityTop() below covers instead.
+ * Returns { [areaKey]: [{code, name, yoy}, ...] }. */
+function computeAreaYoyTop(topN, direction) {
   const codes = collectNonRootCodes();
   const result = {};
   for (const area of AREA_DEFS) {
@@ -3087,10 +3089,11 @@ function computeAreaYoyDeclineTop(topN) {
       if (!rec) return null;
       if (typeof rec.response_count === "number" && rec.response_count < EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD) return null;
       const yoy = rec.area_yoy?.[area.key];
-      if (typeof yoy !== "number" || yoy >= 0) return null;
+      if (typeof yoy !== "number") return null;
+      if (direction === "decline" ? yoy >= 0 : yoy <= 0) return null;
       return { code, name: rec.dept_name, yoy };
     }).filter(Boolean);
-    rows.sort((a, b) => a.yoy - b.yoy);
+    rows.sort((a, b) => (direction === "decline" ? a.yoy - b.yoy : b.yoy - a.yoy));
     result[area.key] = rows.slice(0, topN);
   }
   return result;
@@ -4019,24 +4022,35 @@ function renderExecOrgStatusSection() {
   return `<div class="exec-section">${html}</div>`;
 }
 
-function renderExecYoyDeclineSection() {
-  const topN = EXEC_SUMMARY.YOY_DECLINE_TOP_N;
-  const declineByArea = computeAreaYoyDeclineTop(topN);
-  let html = `<div class="exec-section-title">영역별 전년비 하락 Top${topN}</div>
-    <div class="exec-section-desc">영역마다 독립적으로, 전년 대비 하락한 부서 중 하락폭이 큰 순으로 정렬했습니다. 응답인원 ${EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD}명 미만 조직은 제외했습니다.</div>`;
-  const anyDecline = AREA_DEFS.some(area => declineByArea[area.key].length);
-  if (!anyDecline) {
-    html += `<div class="note-box">전년비 하락이 보고된 부서가 없습니다.</div>`;
+/** Shared renderer for the 영역별 전년비 하락/상승 Top-N sections below
+ * — same table shape either way, only the title/description/sort
+ * direction/empty-state wording differ. */
+function renderExecAreaYoyTopSection(direction) {
+  const isDecline = direction === "decline";
+  const topN = isDecline ? EXEC_SUMMARY.YOY_DECLINE_TOP_N : EXEC_SUMMARY.YOY_IMPROVE_TOP_N;
+  const byArea = computeAreaYoyTop(topN, direction);
+  const title = isDecline ? `영역별 전년비 하락 Top${topN}` : `영역별 전년비 상승 Top${topN}`;
+  const desc = isDecline
+    ? `영역마다 독립적으로, 전년 대비 하락한 부서 중 하락폭이 큰 순으로 정렬했습니다. 응답인원 ${EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD}명 미만 조직은 제외했습니다.`
+    : `영역마다 독립적으로, 전년 대비 상승한 부서 중 상승폭이 큰 순으로 정렬했습니다. 응답인원 ${EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD}명 미만 조직은 제외했습니다.`;
+  const emptyRowText = isDecline ? "하락 부서 없음" : "상승 부서 없음";
+  const emptyNoteText = isDecline ? "전년비 하락이 보고된 부서가 없습니다." : "전년비 상승이 보고된 부서가 없습니다.";
+
+  let html = `<div class="exec-section-title">${title}</div>
+    <div class="exec-section-desc">${desc}</div>`;
+  const anyRows = AREA_DEFS.some(area => byArea[area.key].length);
+  if (!anyRows) {
+    html += `<div class="note-box">${emptyNoteText}</div>`;
   } else {
     html += `<table class="exec-table"><thead><tr><th>영역</th><th>#</th><th>부서명</th><th>전년비</th></tr></thead><tbody>
       ${AREA_DEFS.map(area => {
-        const rows = declineByArea[area.key];
-        if (!rows.length) return `<tr><td>${escapeHtml(area.key)}</td><td colspan="3" class="exec-reason">하락 부서 없음</td></tr>`;
+        const rows = byArea[area.key];
+        if (!rows.length) return `<tr><td>${escapeHtml(area.key)}</td><td colspan="3" class="exec-reason">${emptyRowText}</td></tr>`;
         return rows.map((r, i) => `<tr>
           <td>${i === 0 ? escapeHtml(area.key) : ""}</td>
           <td>${i + 1}</td>
           <td>${escapeHtml(r.name)}</td>
-          <td class="num">${r.yoy.toFixed(1)}</td>
+          <td class="num">${r.yoy >= 0 ? "+" : ""}${r.yoy.toFixed(1)}</td>
         </tr>`).join("");
       }).join("")}
     </tbody></table>`;
@@ -4120,7 +4134,8 @@ function renderSummaryMode() {
     ${renderExecBenchmarkSection(rootData)}
     ${renderSummaryStatBar(rootData)}
     ${renderExecOrgStatusSection()}
-    ${renderExecYoyDeclineSection()}
+    ${renderExecAreaYoyTopSection("decline")}
+    ${renderExecAreaYoyTopSection("improve")}
     ${renderExecLowReliabilitySection()}
     ${renderExecUnclassifiedSection()}
     ${renderExecVarianceSection()}
