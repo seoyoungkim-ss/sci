@@ -294,6 +294,13 @@
   .hq-benchmark-fields input[type=number] {
     border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px; font-size: 13px; width: 70px;
   }
+  .benchmark-input-table { border-collapse: collapse; margin-bottom: 12px; font-size: 12.5px; }
+  .benchmark-input-table th, .benchmark-input-table td { padding: 4px 8px; text-align: left; color: var(--navy-700); }
+  .benchmark-input-table th { font-weight: 700; color: var(--navy-800); }
+  .benchmark-input-table td:first-child, .benchmark-input-table th:first-child { font-weight: 600; color: var(--navy-800); min-width: 56px; }
+  .benchmark-input-table input[type=number] {
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 13px; width: 80px;
+  }
 
   .benchmark-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
   .benchmark-card {
@@ -521,15 +528,40 @@
         <div class="admin-tree" id="admin-tree"></div>
       </div>
       <div class="hq-benchmark-box">
-        <div class="hq-benchmark-title">본사 벤치마크 입력 <span class="hq-benchmark-desc">(레벨1 비교용 — 영역별 점수 3개만 직접 입력, 엑셀과 무관한 별도 값)</span></div>
+        <div class="hq-benchmark-title">본사 벤치마크 입력 <span class="hq-benchmark-desc">(레벨1 비교용 — 영역별 점수·전년비 직접 입력, 엑셀과 무관한 별도 값)</span></div>
+        <table class="benchmark-input-table">
+          <thead><tr><th></th><th>즐거운일</th><th>함께하는동료</th><th>자랑스러운회사</th></tr></thead>
+          <tbody>
+            <tr><td>점수</td>
+              <td><input type="number" step="0.1" min="0" max="100" class="hq-input" data-area="즐거운일" data-field="score"></td>
+              <td><input type="number" step="0.1" min="0" max="100" class="hq-input" data-area="함께하는동료" data-field="score"></td>
+              <td><input type="number" step="0.1" min="0" max="100" class="hq-input" data-area="자랑스러운회사" data-field="score"></td>
+            </tr>
+            <tr><td>전년비</td>
+              <td><input type="number" step="0.1" class="hq-input" data-area="즐거운일" data-field="yoy"></td>
+              <td><input type="number" step="0.1" class="hq-input" data-area="함께하는동료" data-field="yoy"></td>
+              <td><input type="number" step="0.1" class="hq-input" data-area="자랑스러운회사" data-field="yoy"></td>
+            </tr>
+          </tbody>
+        </table>
         <div class="hq-benchmark-fields">
-          <label>즐거운일 <input type="number" step="0.1" min="0" max="100" class="hq-input" data-area="즐거운일"></label>
-          <label>함께하는동료 <input type="number" step="0.1" min="0" max="100" class="hq-input" data-area="함께하는동료"></label>
-          <label>자랑스러운회사 <input type="number" step="0.1" min="0" max="100" class="hq-input" data-area="자랑스러운회사"></label>
           <button class="btn" id="btn-load-hq">불러오기</button>
           <input type="file" id="file-hq" accept=".json,application/json">
           <button class="btn coral" id="btn-save-hq">본사 값 저장</button>
           <span style="color:var(--muted); font-size:12px;" id="hq-status"></span>
+        </div>
+      </div>
+      <div class="hq-benchmark-box">
+        <div class="hq-benchmark-title">타사업부 벤치마크 입력 <span class="hq-benchmark-desc">(경영진 요약 비교표용 — 수기 입력, 빈칸으로 두면 "-"로 표시됩니다)</span></div>
+        <table class="benchmark-input-table">
+          <thead><tr><th></th><th>즐거운일</th><th>함께하는동료</th><th>자랑스러운회사</th></tr></thead>
+          <tbody id="external-benchmark-tbody"></tbody>
+        </table>
+        <div class="hq-benchmark-fields">
+          <button class="btn" id="btn-load-external">불러오기</button>
+          <input type="file" id="file-external" accept=".json,application/json">
+          <button class="btn coral" id="btn-save-external">타사업부 값 저장</button>
+          <span style="color:var(--muted); font-size:12px;" id="external-status"></span>
         </div>
       </div>
     </div>
@@ -2479,12 +2511,26 @@ const state = {
   basedOn: DUMMY_ORG_MAP.based_on,
   selectedCode: null,
   activeTab: "overview",
-  // Manually-typed HQ (본사) benchmark scores for the 3 areas, used to
-  // compare against our top-level (레벨1) rollup on the 부서 현황 tab.
-  // Not derived from the Excel pipeline at all — entered by hand in
-  // admin mode and saved/loaded as its own small JSON file, same
-  // save/load pattern as the org map.
-  hqBenchmark: { 즐거운일: null, 함께하는동료: null, 자랑스러운회사: null },
+  // Manually-typed HQ (본사) benchmark score+전년비 for the 3 areas, used
+  // to compare against our top-level (레벨1) rollup on the 부서 현황 tab
+  // and at the top of 경영진 요약. Not derived from the Excel pipeline
+  // at all — entered by hand in admin mode and saved/loaded as its own
+  // small JSON file, same save/load pattern as the org map.
+  hqBenchmark: {
+    즐거운일: { score: null, yoy: null },
+    함께하는동료: { score: null, yoy: null },
+    자랑스러운회사: { score: null, yoy: null },
+  },
+  // Manually-typed scores for OTHER (외부) companies/business units, shown
+  // alongside 본사/우리사업부 in the 경영진 요약 benchmark table. Purely a
+  // scratch pad for whatever external numbers someone has on hand — no
+  // pipeline produces these, so every cell starts blank. Row labels are
+  // fixed (타사1/타사2/타사3); only the scores are editable.
+  externalBenchmarks: {
+    "타사1": { 즐거운일: null, 함께하는동료: null, 자랑스러운회사: null },
+    "타사2": { 즐거운일: null, 함께하는동료: null, 자랑스러운회사: null },
+    "타사3": { 즐거운일: null, 함께하는동료: null, 자랑스러운회사: null },
+  },
   dataLoadedAt: new Date(), // when the currently-loaded survey data was read in — shown in 경영진 요약's footer
   // Per-department demographic segment detail (근속/성별/연령/직군/경력개발
   // 단계/학력/사업부 비교), loaded from a SEPARATE JSON file — a totally
@@ -3507,7 +3553,7 @@ function renderHqBenchmarkCard() {
   if (!rootData) return html + `<div class="note-box">비교할 전사 데이터가 없습니다.</div>`;
 
   const hq = state.hqBenchmark;
-  const hasHq = AREA_DEFS.some(area => typeof hq[area.key] === "number");
+  const hasHq = AREA_DEFS.some(area => typeof hq[area.key]?.score === "number");
   if (!hasHq) {
     return html + `<div class="note-box">본사 데이터 미입력 — 관리자 모드에서 입력할 수 있습니다.</div>`;
   }
@@ -3515,13 +3561,14 @@ function renderHqBenchmarkCard() {
   html += `<div class="benchmark-grid">`;
   for (const area of AREA_DEFS) {
     const ours = rootData.area_scores[area.key];
-    const theirs = hq[area.key];
+    const theirs = hq[area.key]?.score ?? null;
+    const theirYoy = hq[area.key]?.yoy ?? null;
     const delta = (typeof ours === "number" && typeof theirs === "number") ? ours - theirs : null;
     const deltaCls = delta === null ? "" : delta > 0 ? "positive" : delta < 0 ? "negative" : "";
     html += `<div class="benchmark-card">
       <div class="benchmark-name">${escapeHtml(area.key)}</div>
       <div class="benchmark-row"><span>${escapeHtml(rootData.dept_name)}</span><span class="v">${fmtScore(ours)}</span></div>
-      <div class="benchmark-row"><span>본사</span><span class="v">${fmtScore(theirs)}</span></div>
+      <div class="benchmark-row"><span>본사</span><span class="v">${fmtScore(theirs)}${yoyInlineHtml(theirYoy)}</span></div>
       <div class="benchmark-delta ${deltaCls}">${delta === null ? "차이: -" : `차이: ${delta >= 0 ? "+" : ""}${delta.toFixed(1)}`}</div>
     </div>`;
   }
@@ -3917,6 +3964,32 @@ function fmtDateTime(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** 경영진 요약 맨 처음에 표시하는 벤치마크 비교표 — 본사(수기 입력,
+ * state.hqBenchmark) / 우리사업부(실제 전사 rollup) / 타사1~3(수기 입력,
+ * state.externalBenchmarks) 순으로 나란히 비교합니다. 본사/우리사업부는
+ * 이미 다른 곳에 있는 값을 그대로 보여주는 것이고, 타사1~3만 이 표를 위한
+ * 새 수기 입력값입니다 — 비어 있으면 그냥 "-"로 둡니다(추정하지 않음). */
+function renderExecBenchmarkSection(rootData) {
+  const rows = [
+    { name: "본사", getScore: a => state.hqBenchmark[a.key]?.score ?? null, getYoy: a => state.hqBenchmark[a.key]?.yoy ?? null },
+    { name: rootData ? rootData.dept_name : "우리사업부", getScore: a => rootData?.area_scores?.[a.key] ?? null, getYoy: a => (typeof rootData?.area_yoy?.[a.key] === "number" ? rootData.area_yoy[a.key] : null) },
+    ...Object.keys(state.externalBenchmarks).map(org => ({
+      name: org,
+      getScore: a => state.externalBenchmarks[org][a.key] ?? null,
+      getYoy: () => null,
+    })),
+  ];
+  let html = `<div class="exec-section-title">벤치마크 비교 (본사·타사업부)</div>
+    <div class="exec-section-desc">본사·타사업부 점수는 관리자 모드에서 수기로 입력합니다. 비어 있으면 "-"로 표시됩니다.</div>
+    <table class="exec-table"><thead><tr><th>구분</th>${AREA_DEFS.map(a => `<th>${escapeHtml(a.key)}</th>`).join("")}</tr></thead><tbody>
+      ${rows.map(r => `<tr>
+        <td>${escapeHtml(r.name)}</td>
+        ${AREA_DEFS.map(a => `<td class="num">${fmtScore(r.getScore(a))}${yoyInlineHtml(r.getYoy(a))}</td>`).join("")}
+      </tr>`).join("")}
+    </tbody></table>`;
+  return `<div class="exec-section">${html}</div>`;
+}
+
 function renderSummaryStatBar(rootData) {
   const overall = overallScore(rootData);
   const yoyVals = AREA_DEFS.map(a => rootData.area_yoy?.[a.key]).filter(v => typeof v === "number");
@@ -4055,6 +4128,7 @@ function renderSummaryMode() {
   el.innerHTML = `
     <div class="summary-page-title">부서 건강도 경영진 요약</div>
     <div class="summary-page-subtitle">"${escapeHtml(rootData.dept_name)}" 최상위 조직 기준 · 회차 ${escapeHtml(state.round || "-")}</div>
+    ${renderExecBenchmarkSection(rootData)}
     ${renderSummaryStatBar(rootData)}
     ${renderExecOrgStatusSection()}
     ${renderExecRiskSection()}
@@ -4328,13 +4402,35 @@ function renderAdminMode() {
   document.getElementById("round-badge").textContent = state.round || "-";
   document.getElementById("dummy-data-banner").hidden = !isUsingDummyData();
   syncHqBenchmarkInputs();
+  renderExternalBenchmarkInputs();
 }
 
-/** Reflects state.hqBenchmark into the 3 number inputs in admin mode. */
+/** Reflects state.hqBenchmark into the 6 score/전년비 number inputs in
+ * admin mode. */
 function syncHqBenchmarkInputs() {
   document.querySelectorAll(".hq-input").forEach(input => {
-    const v = state.hqBenchmark[input.dataset.area];
+    const v = state.hqBenchmark[input.dataset.area]?.[input.dataset.field];
     input.value = typeof v === "number" ? v : "";
+  });
+}
+
+/** Builds the 타사1/타사2/타사3 x 3-area input grid (rows are fixed —
+ * see state.externalBenchmarks — only the score cells are ever blank
+ * or filled) and reflects current values into it. Rebuilt on every
+ * admin-mode render same as the org tree, so re-running this after a
+ * load just works without a separate "sync" pass. */
+function renderExternalBenchmarkInputs() {
+  const tbody = document.getElementById("external-benchmark-tbody");
+  tbody.innerHTML = Object.keys(state.externalBenchmarks).map(org => `
+    <tr><td>${escapeHtml(org)}</td>${AREA_DEFS.map(a => {
+      const v = state.externalBenchmarks[org][a.key];
+      return `<td><input type="number" step="0.1" min="0" max="100" class="ext-input" data-org="${escapeHtml(org)}" data-area="${escapeHtml(a.key)}" value="${typeof v === "number" ? v : ""}"></td>`;
+    }).join("")}</tr>`).join("");
+  tbody.querySelectorAll(".ext-input").forEach(input => {
+    input.addEventListener("input", () => {
+      const v = input.value.trim();
+      state.externalBenchmarks[input.dataset.org][input.dataset.area] = v === "" ? null : Number(v);
+    });
   });
 }
 
@@ -4872,7 +4968,7 @@ document.getElementById("btn-save-orgmap").addEventListener("click", () => {
 document.querySelectorAll(".hq-input").forEach(input => {
   input.addEventListener("input", () => {
     const v = input.value.trim();
-    state.hqBenchmark[input.dataset.area] = v === "" ? null : Number(v);
+    state.hqBenchmark[input.dataset.area][input.dataset.field] = v === "" ? null : Number(v);
   });
 });
 
@@ -4885,7 +4981,17 @@ document.getElementById("file-hq").addEventListener("change", (e) => {
     const values = json.hq_benchmark || json;
     for (const area of AREA_DEFS) {
       const v = values[area.key];
-      state.hqBenchmark[area.key] = typeof v === "number" ? v : null;
+      // 이전 버전 파일은 area당 순수 숫자(score만) 하나였습니다 — 그 형태로
+      // 저장된 파일을 불러와도 깨지지 않도록 그대로 score로 읽어들이고
+      // yoy는 없는 것으로 처리합니다.
+      if (typeof v === "number") {
+        state.hqBenchmark[area.key] = { score: v, yoy: null };
+      } else {
+        state.hqBenchmark[area.key] = {
+          score: typeof v?.score === "number" ? v.score : null,
+          yoy: typeof v?.yoy === "number" ? v.yoy : null,
+        };
+      }
     }
     syncHqBenchmarkInputs();
     statusEl.textContent = `"${file.name}" 불러옴`;
@@ -4898,6 +5004,32 @@ document.getElementById("btn-save-hq").addEventListener("click", () => {
   const payload = { round: state.round || null, hq_benchmark: { ...state.hqBenchmark }, saved_at: new Date().toISOString() };
   downloadJson(payload, `hq_benchmark_${name}.json`);
   document.getElementById("hq-status").textContent = `hq_benchmark_${name}.json 저장됨`;
+});
+
+document.getElementById("btn-load-external").addEventListener("click", () => document.getElementById("file-external").click());
+document.getElementById("file-external").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("external-status");
+  readJsonFile(file, (json) => {
+    const values = json.external_benchmarks || json;
+    for (const org of Object.keys(state.externalBenchmarks)) {
+      for (const area of AREA_DEFS) {
+        const v = values[org]?.[area.key];
+        state.externalBenchmarks[org][area.key] = typeof v === "number" ? v : null;
+      }
+    }
+    renderExternalBenchmarkInputs();
+    statusEl.textContent = `"${file.name}" 불러옴`;
+  });
+  e.target.value = "";
+});
+
+document.getElementById("btn-save-external").addEventListener("click", () => {
+  const name = (state.round || "data").replace(/[\\/:*?"<>|]/g, "_");
+  const payload = { round: state.round || null, external_benchmarks: { ...state.externalBenchmarks }, saved_at: new Date().toISOString() };
+  downloadJson(payload, `external_benchmark_${name}.json`);
+  document.getElementById("external-status").textContent = `external_benchmark_${name}.json 저장됨`;
 });
 
 /** Copies #summary-content as rich HTML (tables intact) to the
