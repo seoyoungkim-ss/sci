@@ -235,8 +235,28 @@ def load_dept_code_lookup():
 
 def open_workbook(path):
     import xlwings as xw
-    app = xw.App(visible=False)
-    wb = app.books.open(path)
+
+    # visible=True (not False): many corporate DRM/IRM plugins hook
+    # Excel's own UI-level file-open flow to decrypt a protected
+    # workbook, and fail — or refuse to decrypt at all — when Excel is
+    # launched invisibly via COM automation. That failure surfaces as
+    # Excel's own generic "읽기 전용이거나 손상되었거나 암호화되어
+    # 있습니다" dialog, which looks like real corruption/encryption but
+    # is really just the DRM plugin not getting a chance to run.
+    # Keeping the window visible lets the same plugin hook that works
+    # when you open the file normally do its job here too. See
+    # xlwings_loader.py's open_sheet() for the same fix + more detail.
+    app = xw.App(visible=True)
+    try:
+        wb = app.books.open(path)
+    except Exception as err:
+        app.quit()
+        raise RuntimeError(
+            f"Excel에서 '{path}' 파일을 열지 못했습니다: {err}\n"
+            "'읽기 전용이거나 암호화되어 있습니다' 같은 오류라면 보통 DRM 플러그인이 "
+            "정상 동작하는 계정으로 Excel에 로그인되어 있는지, 같은 파일을 Excel에서 "
+            "평소처럼(더블클릭으로) 열면 정상적으로 복호화되는지부터 확인해보세요."
+        ) from err
     return app, wb
 
 
