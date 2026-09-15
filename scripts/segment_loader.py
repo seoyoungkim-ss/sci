@@ -205,11 +205,50 @@ def reshape_for_dashboard(bucket, categories_in_order):
     return out
 
 
+def parse_sheet_structure(values):
+    """The structural half of sheet parsing, with NO requirement that a
+    department title be present — just "does this grid of values look
+    like a 문항별 결과 data grid, and if so what's in it". Returns
+    (columns, areas, items, questions); columns is [] when row 3/4
+    headers didn't yield any segment columns at all.
+
+    Shared by parse_segment_sheet() (below, which additionally requires
+    a title on the SAME sheet) and parse_one_workbook() (which does NOT
+    require that, since a real reported case has the department title
+    on one sheet — e.g. a cover "Sheet1" — and the actual data grid on
+    a different, title-less sheet — e.g. "Sheet2")."""
+    columns = build_column_map(values)
+    if not columns:
+        return [], {}, {}, {}
+    areas, items, questions = parse_area_item_rows(values, columns)
+    return columns, areas, items, questions
+
+
+def build_segments_dict(columns, areas, items):
+    """{대분류: {"categories": [...], "areas": {...}, "items": {...}}}
+    from parse_sheet_structure()'s output, reshaped to the arrays the
+    dashboard expects (see reshape_for_dashboard())."""
+    categories_by_major = {}
+    for col_def in columns:
+        categories_by_major.setdefault(col_def["major"], []).append(col_def["category"])
+    return {
+        major: {
+            "categories": categories,
+            "areas": reshape_for_dashboard(areas, categories),
+            "items": reshape_for_dashboard(items, categories),
+        }
+        for major, categories in categories_by_major.items()
+    }
+
+
 def parse_segment_sheet(values, verbose=False):
     """values: 2D list from sheet.used_range.value. Returns
     (dept_name, {대분류: {"categories": [...], "areas": {...}, "items": {...}}})
     or (None, {}) if this doesn't look like a 문항별 결과 sheet at all
     (e.g. the unrelated 4th "마스터 요약" sheet xlwings_loader.py reads).
+    Requires the department title on THIS SAME sheet — parse_one_workbook()
+    uses the lower-level parse_sheet_structure() directly instead,
+    specifically to not require that (see its docstring for why).
 
     verbose=True prints a per-sheet breakdown of exactly what got found
     (which 대분류 and how many 소분류 columns each, how many area/item
@@ -221,19 +260,16 @@ def parse_segment_sheet(values, verbose=False):
     if dept_name is None:
         return None, {}
 
-    columns = build_column_map(values)
+    columns, areas, items, questions = parse_sheet_structure(values)
     if not columns:
         print(f"  warning: '{dept_name}' — no segment columns found (row 3/4 headers unreadable?), skipping",
               file=sys.stderr)
         return dept_name, {}
 
-    areas, items, questions = parse_area_item_rows(values, columns)
-
-    categories_by_major = {}
-    for col_def in columns:
-        categories_by_major.setdefault(col_def["major"], []).append(col_def["category"])
-
     if verbose:
+        categories_by_major = {}
+        for col_def in columns:
+            categories_by_major.setdefault(col_def["major"], []).append(col_def["category"])
         print(f"  [{dept_name}] 대분류 {len(categories_by_major)}개, "
               f"영역 레이블 {len(areas)}개, 항목 레이블 {len(items)}개, 문항 레이블 {len(questions)}개 발견")
         for major, categories in categories_by_major.items():
@@ -246,14 +282,7 @@ def parse_segment_sheet(values, verbose=False):
             print(f"    !! 영역이 3개(즐거운일/함께하는동료/자랑스러운회사) 미만입니다 — "
                   f"row_start_1idx(기본 9) 또는 컬럼 A 레이블이 실제 시트와 다를 수 있습니다.")
 
-    segments = {}
-    for major, categories in categories_by_major.items():
-        segments[major] = {
-            "categories": categories,
-            "areas": reshape_for_dashboard(areas, categories),
-            "items": reshape_for_dashboard(items, categories),
-        }
-    return dept_name, segments
+    return dept_name, build_segments_dict(columns, areas, items)
 
 
 def load_dept_code_lookup():
@@ -272,10 +301,23 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None, verbose=False
     """Opens a single .xlsx (one department's own file, or a multi-sheet
     workbook holding several departments — both are supported, since a
     "44개 조직별 상세 시트" description could mean either 44 sheets in
-    one file or 44 separate files) and returns {dept_code: {...}} for
-    every sheet in it that looks like a 문항별 결과 sheet. Prints one
-    line per sheet it either parses or explicitly skips, so a run over
-    many files/sheets is easy to audit against an expected total.
+    one file or 44 separate files) and returns {dept_code: {...}}.
+
+    Two passes over this workbook's sheets, deliberately NOT assuming
+    the department-identifying title and the actual A1:EP38 data grid
+    are the same sheet — a reported real case has them on different
+    sheets (e.g. a "Sheet1" cover carries the "문항별 결과: <조직명>"
+    title while the real data grid is on "Sheet2", which has no title
+    of its own at all): requiring both on one sheet silently skipped
+    the whole data sheet, and only whatever partial content happened
+    to be on the title sheet made it into the output.
+      1. Find a department name from ANY sheet's title (first match).
+      2. Among ALL sheets, parse each one structurally (column headers
+         + area/item rows) and keep whichever yields the MOST area
+         labels — the sheet that actually looks like a real data grid,
+         not just whichever a title happened to be on, and not just
+         "whichever sheet is processed last" silently winning over a
+         better one.
 
     Uses open_or_attach(): if this exact file is already open in some
     Excel window (e.g. you double-clicked it, confirmed to work when a
@@ -285,27 +327,58 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None, verbose=False
     app, wb, owns_app = open_or_attach(path)
     try:
         targets = [wb.sheets[s] for s in sheet_filter] if sheet_filter else list(wb.sheets)
+        fname = Path(path).name
+
+        sheet_values = {}
+        dept_name = None
         for sheet in targets:
             values = sheet.used_range.value
             if not values:
                 continue
-            dept_name, segments = parse_segment_sheet(values, verbose=verbose)
+            sheet_values[sheet.name] = values
             if dept_name is None:
-                continue  # not a 문항별 결과 sheet — silently skip (e.g. a master summary sheet)
-            dept_code = dept_code_by_name.get(dept_name)
-            if dept_code is None:
-                print(f"  warning: '{dept_name}' (sheet '{sheet.name}' in {Path(path).name}) has no "
-                      f"matching dept_code in survey data — skipped. Load/refresh survey data first, "
-                      f"or check the name matches exactly.", file=sys.stderr)
-                continue
-            response_row = values[5] if len(values) > 5 else []  # Row6 (0-based index 5) = 응답인원
+                dept_name = find_dept_name(values)
+
+        if dept_name is None:
+            if verbose:
+                print(f"  skip {fname}: '문항별 결과: ...' 제목을 어떤 시트에서도 찾지 못함")
+            return departments
+
+        dept_code = dept_code_by_name.get(dept_name)
+        if dept_code is None:
+            print(f"  warning: '{dept_name}' ({fname}) has no matching dept_code in survey data — "
+                  f"skipped. Load/refresh survey data first, or check the name matches exactly.",
+                  file=sys.stderr)
+            return departments
+
+        best_segments, best_area_count, best_sheet_name = {}, -1, None
+        for sheet_name, values in sheet_values.items():
+            columns, areas, items, questions = parse_sheet_structure(values)
+            if verbose:
+                print(f"  [{fname}:{sheet_name}] 대분류 컬럼 {len(columns)}개, 영역 {len(areas)}개, "
+                      f"항목 {len(items)}개, 문항 {len(questions)}개 발견 (전체 행수: {len(values)})")
+            if len(areas) > best_area_count:
+                best_segments = build_segments_dict(columns, areas, items)
+                best_area_count, best_sheet_name = len(areas), sheet_name
+
+        if best_area_count < 3:
+            print(f"  warning: '{dept_name}' ({fname}) — 모든 시트를 통틀어 영역이 3개 미만으로만 "
+                  f"발견됨 (최선의 시트 '{best_sheet_name}'에서 {max(best_area_count, 0)}개). "
+                  f"--verbose로 시트별 세부 내역을 확인하세요.", file=sys.stderr)
+
+        response_count = None
+        if best_sheet_name is not None:
+            best_values = sheet_values[best_sheet_name]
+            response_row = best_values[5] if len(best_values) > 5 else []  # Row6 = 응답인원
             response_count = next((int(v) for v in response_row if isinstance(v, (int, float))), None)
-            departments[dept_code] = {
-                "dept_name": dept_name,
-                "response_count": response_count,
-                "segments": segments,
-            }
-            print(f"  parsed {Path(path).name}:'{sheet.name}' -> {dept_name} ({dept_code}): {len(segments)} segment(s)")
+
+        departments[dept_code] = {
+            "dept_name": dept_name,
+            "response_count": response_count,
+            "segments": best_segments,
+        }
+        print(f"  parsed {fname} (시트 '{best_sheet_name}') -> {dept_name} ({dept_code}): "
+              f"{len(best_segments)} segment(s), {max(best_area_count, 0)}개 영역")
     finally:
         close_or_detach(app, wb, owns_app)
     return departments
