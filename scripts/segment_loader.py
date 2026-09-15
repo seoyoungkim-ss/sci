@@ -102,6 +102,7 @@ from xlwings_utils import close_or_detach, open_or_attach
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 TITLE_RE = re.compile(r"문항별\s*결과\s*[:：]\s*(.+)")
+SHEET_NAME_RE = re.compile(r"문항별\s*결과")
 IGNORED_MAJOR_CATEGORIES = {"사업장"}
 
 
@@ -356,12 +357,19 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None, verbose=False
     the whole data sheet, and only whatever partial content happened
     to be on the title sheet made it into the output.
       1. Find a department name from ANY sheet's title (first match).
-      2. Among ALL sheets, parse each one structurally (column headers
-         + area/item rows) and keep whichever yields the MOST area
-         labels — the sheet that actually looks like a real data grid,
-         not just whichever a title happened to be on, and not just
-         "whichever sheet is processed last" silently winning over a
-         better one.
+      2. If any sheet's own TAB NAME contains "문항별 결과" (e.g. a
+         real reported case: "1.문항별 결과"), restrict the data-sheet
+         search to just those sheets — an explicit sheet name is a
+         much stronger signal than sheet content, and without this a
+         differently-named sheet elsewhere in the workbook (e.g.
+         "Sheet3") could still win the next step purely by accident.
+      3. Among the candidate sheets (named ones if any were found,
+         otherwise ALL sheets), parse each one structurally (column
+         headers + area/item rows) and keep whichever yields the MOST
+         area labels — the sheet that actually looks like a real data
+         grid, not just whichever a title happened to be on, and not
+         just "whichever sheet is processed last" silently winning
+         over a better one.
 
     Uses open_or_attach(): if this exact file is already open in some
     Excel window (e.g. you double-clicked it, confirmed to work when a
@@ -395,8 +403,26 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None, verbose=False
                   file=sys.stderr)
             return departments
 
+        # A sheet whose own TAB NAME contains "문항별 결과" (e.g. "1.문항별
+        # 결과") is a deliberate, explicit identifier from whoever built
+        # the workbook -- a far stronger signal than "which sheet has
+        # the most area labels". Prefer those sheets outright when any
+        # exist, instead of letting some OTHER sheet win the structural
+        # area-count comparison just because it happens to also produce
+        # >=3 area-shaped rows (real symptom: a differently-named sheet,
+        # e.g. "Sheet3", got picked over the correctly-named "1.문항별
+        # 결과" sheet). Only fall back to scanning every sheet when none
+        # of them are named this way (covers the earlier case where the
+        # real data sheet had a generic, unlabeled name like "Sheet2").
+        named_candidates = {name: values for name, values in sheet_values.items()
+                             if SHEET_NAME_RE.search(name)}
+        candidates = named_candidates if named_candidates else sheet_values
+        if verbose and named_candidates:
+            print(f"  [{fname}] 시트 이름에 '문항별 결과'가 포함된 시트를 우선 후보로 사용: "
+                  f"{', '.join(named_candidates)}")
+
         best_segments, best_area_count, best_sheet_name = {}, -1, None
-        for sheet_name, values in sheet_values.items():
+        for sheet_name, values in candidates.items():
             columns, areas, items, questions = parse_sheet_structure(values, verbose=verbose)
             if verbose:
                 categories_by_major = {}
