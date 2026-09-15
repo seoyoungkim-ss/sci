@@ -278,6 +278,11 @@
   }
   .node-move-btn:hover:not(:disabled) { background: var(--navy-600); color: #fff; border-color: var(--navy-600); }
   .node-move-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .node-official-toggle {
+    display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--navy-700);
+    font-weight: 600; cursor: pointer; white-space: nowrap; margin-right: 4px;
+  }
+  .node-official-toggle input { cursor: pointer; }
   .root-dropzone {
     border: 2px dashed var(--border); border-radius: var(--radius); padding: 16px;
     text-align: center; color: var(--muted); font-size: 12.5px; margin-bottom: 14px;
@@ -432,6 +437,7 @@
   .exec-tag.improve { background: var(--gold-light); color: #8a6a1a; }
   .exec-tag.warn { background: #fde3e0; color: var(--negative); }
   .exec-tag.na { background: var(--paper); color: var(--muted); }
+  .exec-tag.lowsample { background: var(--gold-light); color: #8a6a1a; }
   .exec-reason { font-size: 11.5px; color: var(--navy-700); }
   .exec-comment { background: var(--navy-100); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; color: var(--navy-800); margin-top: 10px; line-height: 1.6; }
   .exec-comment b { color: var(--coral-dark); }
@@ -2505,6 +2511,12 @@ const state = {
   orgOrder: DUMMY_ORG_MAP.order ? [...DUMMY_ORG_MAP.order] : Object.keys(DUMMY_ORG_MAP.map),
   round: DUMMY_ORG_MAP.round,
   basedOn: DUMMY_ORG_MAP.based_on,
+  // 공식조직/비공식조직 구분 — 관리자 모드 트리에서 부서별로 체크하고,
+  // 경영진 요약 "조직별 현황" 표에서 공식조직의 번호를 굵게 표시하는 데
+  // 씁니다. 명시적으로 false로 저장된 코드만 비공식조직이고, 값이 아예
+  // 없는 코드는 공식조직으로 취급합니다(기존에 이 필드가 없던 org_map을
+  // 불러와도 전부 공식조직으로 보이도록 하는 하위호환 기본값).
+  officialOrgs: DUMMY_ORG_MAP.official ? { ...DUMMY_ORG_MAP.official } : {},
   selectedCode: null,
   activeTab: "overview",
   // Manually-typed HQ (본사) benchmark score+전년비 for the 3 areas, used
@@ -3161,31 +3173,28 @@ function classifyOrgStatus(score, yoy) {
   return "주의";
 }
 
-/** Per-department breakdown for every dept_level 2 AND 3 department,
- * ordered like an actual org chart — a Lv3 department is listed
- * immediately under its own Lv2 parent (found by walking the real org
- * tree in pre-order from the roots, then keeping only Lv2/Lv3 codes;
- * pre-order visits a parent right before its children, so this stays
- * correct even if there's a level in between that isn't 2 or 3) —
- * rather than one flat list sorted purely by score, so which Lv3 rolls
- * up into which Lv2 is visible from row order alone (indent is applied
- * at render time from each row's own `level`). health label via
+/** Per-department breakdown for EVERY organization in the tree (전사
+ * 최상위부터 최하위까지 전부), ordered like an actual org chart — pre-
+ * order tree walk from the roots, so every child is listed immediately
+ * under its own parent regardless of how many levels deep it is —
+ * rather than one flat list sorted purely by score. `depth` (0 for a
+ * root) comes from the real org-tree path (breadcrumbPath()), not the
+ * reported dept_level field, since dept_level is only a reference
+ * number and the actual hierarchy is whatever's built in 관리자 모드
+ * (see the admin-mode hint next to the tree). health label via
  * classifyOrgStatus() below; each area's own score (즐거운일/함께하는
  * 동료/자랑스러운회사) plus the 3-area average, each with its own YoY.
  * Departments below EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD respondents are
- * dropped entirely (not just flagged) — a low-sample org's own score is
- * unreliable enough that showing it next to reliable ones invites the
- * wrong comparison. A dropped or missing Lv2 doesn't hide its own valid
- * Lv3 children — the tree walk always recurses into every child. */
+ * kept (not dropped) but flagged via `lowSample` — the caller shows
+ * this as a 표본 부족 tag in the 분류 column rather than hiding the
+ * row, since 전부 다 보여주기로 한 이상 표본 부족도 숨기지 않고 표시만
+ * 합니다. `isOfficial` mirrors state.officialOrgs (관리자 모드에서 체크
+ * 하는 공식/비공식조직 구분) — missing entries default to official. */
 function computeExecOrgStatus() {
-  const wanted = new Set();
-  for (const r of state.surveyData) {
-    if (r.dept_level === 2 || r.dept_level === 3) wanted.add(r.dept_code);
-  }
   const orderedCodes = [];
   const childMap = childrenByParent();
   function visit(code) {
-    if (wanted.has(code)) orderedCodes.push(code);
+    orderedCodes.push(code);
     for (const child of childMap[code] || []) visit(child);
   }
   for (const root of rootCodes()) visit(root);
@@ -3194,20 +3203,19 @@ function computeExecOrgStatus() {
   for (const code of orderedCodes) {
     const rec = rollup(code);
     if (!rec) continue;
-    if (typeof rec.response_count === "number" && rec.response_count < EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD) {
-      continue; // 표본 부족 조직은 목록에서 제외
-    }
     const score = overallScore(rec);
     const yoyVals = AREA_DEFS.map(a => rec.area_yoy?.[a.key]).filter(v => typeof v === "number");
     const yoy = yoyVals.length ? mean(yoyVals) : null;
     rows.push({
-      code, name: rec.dept_name, level: rec.dept_level,
+      code, name: rec.dept_name, level: rec.dept_level, depth: breadcrumbPath(code).length - 1,
       leaderName: rec.leader_name,
       targetCount: rec.target_count,
       responseCount: rec.response_count,
       responseRate: rec.response_rate,
       score, yoy,
       status: classifyOrgStatus(score, yoy),
+      lowSample: typeof rec.response_count === "number" && rec.response_count < EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD,
+      isOfficial: state.officialOrgs[code] !== false,
       areaScores: Object.fromEntries(AREA_DEFS.map(a => [a.key, rec.area_scores?.[a.key] ?? null])),
       areaYoy: Object.fromEntries(AREA_DEFS.map(a => [a.key, typeof rec.area_yoy?.[a.key] === "number" ? rec.area_yoy[a.key] : null])),
     });
@@ -3992,21 +4000,24 @@ function renderSummaryStatBar(rootData) {
  * 단계에서 아예 제외합니다. */
 function renderExecOrgStatusSection() {
   const rows = computeExecOrgStatus();
-  let html = `<div class="exec-section-title">Lv2/Lv3 조직별 현황 (${rows.length}개)</div>
-    <div class="exec-section-desc">Lv2 조직과 그 산하 Lv3 조직을 조직도 구조 그대로(Lv3는 소속 Lv2 아래 들여쓰기) 표시합니다. 분류는 종합점수 ${EXEC_SUMMARY.GOOD_SCORE_THRESHOLD}점 · 전년비(영역 3개 평균) 상승/하락 기준 4분류 — 우수(점수↑·전년비↑) · 양호(점수↑·전년비↓) · 개선(점수↓·전년비↑) · 주의(점수↓·전년비↓)이며, 이 부서 자체의 전년비 보고값이 없으면 분류불가로 표시합니다. 응답인원 ${EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD}명 미만 조직은 표본 부족으로 이 표에서 제외했습니다.</div>`;
+  let html = `<div class="exec-section-title">조직별 현황 (${rows.length}개)</div>
+    <div class="exec-section-desc">전사 최상위부터 최하위 조직까지 조직도 구조 그대로(하위 조직일수록 들여쓰기) 표시합니다. 분류는 종합점수 ${EXEC_SUMMARY.GOOD_SCORE_THRESHOLD}점 · 전년비(영역 3개 평균) 상승/하락 기준 4분류 — 우수(점수↑·전년비↑) · 양호(점수↑·전년비↓) · 개선(점수↓·전년비↑) · 주의(점수↓·전년비↓)이며, 이 부서 자체의 전년비 보고값이 없으면 분류불가로 표시합니다. 응답인원 ${EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD}명 미만 조직은 분류 칸에 표본 부족으로 별도 표기합니다. 공식조직(관리자 모드에서 지정)은 번호를 굵게 표시합니다.</div>`;
   if (!rows.length) {
-    html += `<div class="note-box">Lv2/Lv3 조직 데이터가 없습니다.</div>`;
+    html += `<div class="note-box">조직 데이터가 없습니다.</div>`;
   } else {
     html += `<table class="exec-table"><thead><tr>
       <th>#</th><th>부서명</th><th>리더</th><th>대상자</th><th>응답자</th><th>참여율</th>
       <th>3대영역평균</th>${AREA_DEFS.map(a => `<th>${escapeHtml(a.key)}</th>`).join("")}<th>분류</th>
     </tr></thead><tbody>
       ${rows.map((r, i) => {
-        const nameHtml = r.level <= 2
+        const nameHtml = r.depth <= 0
           ? `<b>${escapeHtml(r.name)}</b>`
-          : `${"　".repeat(r.level - 2)}└ ${escapeHtml(r.name)}`;
+          : `${"　".repeat(r.depth - 1)}└ ${escapeHtml(r.name)}`;
+        const numberHtml = r.isOfficial ? `<b>${i + 1}</b>` : `${i + 1}`;
+        const statusTag = r.status ? `<span class="exec-tag ${EXEC_ORG_STATUS_CLASS[r.status]}">${r.status}</span>` : `<span class="exec-tag na">분류불가</span>`;
+        const lowSampleTag = r.lowSample ? `<span class="exec-tag lowsample">표본 부족(${r.responseCount}명)</span>` : "";
         return `<tr>
-        <td>${i + 1}</td>
+        <td>${numberHtml}</td>
         <td>${nameHtml}</td>
         <td>${escapeHtml(r.leaderName || "-")}</td>
         <td class="num">${typeof r.targetCount === "number" ? r.targetCount : "-"}</td>
@@ -4014,7 +4025,7 @@ function renderExecOrgStatusSection() {
         <td class="num">${fmtPct(r.responseRate)}</td>
         <td class="num">${fmtScore(r.score)}${yoyInlineHtml(r.yoy)}</td>
         ${AREA_DEFS.map(a => `<td class="num">${fmtScore(r.areaScores[a.key])}${yoyInlineHtml(r.areaYoy[a.key])}</td>`).join("")}
-        <td>${r.status ? `<span class="exec-tag ${EXEC_ORG_STATUS_CLASS[r.status]}">${r.status}</span>` : `<span class="exec-tag na">분류불가</span>`}</td>
+        <td>${statusTag}${lowSampleTag}</td>
       </tr>`;
       }).join("")}
     </tbody></table>`;
@@ -4302,12 +4313,21 @@ function renderAdminNode(code, container) {
   // its own explicit tooltip instead of reusing the normal one.
   const isFirst = siblingIdx <= 0;
   const isLast = siblingIdx === -1 || siblingIdx >= siblingList.length - 1;
+  const isOfficial = state.officialOrgs[code] !== false;
   const actions = document.createElement("span");
   actions.className = "node-actions";
   actions.innerHTML = `
+    <label class="node-official-toggle" title="경영진 요약 조직별 현황 표에서 이 부서의 번호를 굵게 표시합니다">
+      <input type="checkbox" class="node-official-cb" ${isOfficial ? "checked" : ""}> 공식조직
+    </label>
     <button type="button" class="node-move-btn" data-dir="up" title="${isFirst ? "이미 맨 위입니다" : "위로 이동"}" ${isFirst ? "disabled" : ""}>▲</button>
     <button type="button" class="node-move-btn" data-dir="down" title="${isLast ? "이미 맨 아래입니다" : "아래로 이동"}" ${isLast ? "disabled" : ""}>▼</button>
   `;
+  actions.querySelector(".node-official-cb").addEventListener("change", (e) => {
+    e.stopPropagation();
+    state.officialOrgs[code] = e.target.checked;
+    document.getElementById("admin-status").textContent = `저장되지 않은 변경사항 있음`;
+  });
   actions.querySelectorAll(".node-move-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -4907,12 +4927,18 @@ document.getElementById("file-orgmap").addEventListener("change", (e) => {
     // Detect that case and just adopt the file's map/order as-is
     // instead, so it's already in place the moment matching survey
     // data is loaded afterward.
+    // official(공식조직/비공식조직)도 map/order와 같은 파일에 함께
+    // 저장/로드합니다 — 예전에 저장된 파일에는 이 키가 아예 없을 수
+    // 있으므로, 없으면 전부 공식조직으로 취급되는 기본값({})으로 둡니다.
+    const loadedOfficial = json.official && typeof json.official === "object" ? { ...json.official } : {};
+
     const currentCodes = new Set(state.surveyData.map(r => String(r.dept_code)));
     const loadedCodes = Object.keys(loadedMap);
     const overlap = loadedCodes.some(c => currentCodes.has(c));
     if (state.surveyData.length && loadedCodes.length && !overlap) {
       state.orgMap = loadedMap;
       state.orgOrder = loadedOrder;
+      state.officialOrgs = loadedOfficial;
       state.basedOn = state.round;
       state.round = json.round ? `${json.round}(불러옴)` : state.round;
       invalidateRollupCache();
@@ -4931,6 +4957,7 @@ document.getElementById("file-orgmap").addEventListener("change", (e) => {
     const { orgMap, orgOrder, droppedToRoot, defaultTopCode } = reconcileOrgMapWithSurveyData(state.surveyData);
     state.orgMap = orgMap;
     state.orgOrder = orgOrder;
+    state.officialOrgs = loadedOfficial;
     state.basedOn = state.round;
     state.round = json.round ? `${json.round}(불러옴)` : state.round;
     invalidateRollupCache();
@@ -4955,7 +4982,7 @@ document.getElementById("btn-save-orgmap").addEventListener("click", () => {
     );
     if (!proceed) return;
   }
-  const payload = { round: name, based_on: state.basedOn || null, map: state.orgMap, order: state.orgOrder, saved_at: new Date().toISOString() };
+  const payload = { round: name, based_on: state.basedOn || null, map: state.orgMap, order: state.orgOrder, official: state.officialOrgs, saved_at: new Date().toISOString() };
   downloadJson(payload, `org_map_${name}.json`);
   state.round = name;
   document.getElementById("round-badge").textContent = name;
