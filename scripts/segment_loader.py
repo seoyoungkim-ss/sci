@@ -93,6 +93,7 @@ was written from a text description of the layout, not a sample file:
 """
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -137,30 +138,40 @@ NO_DATA_TEXT_VARIANTS = {NO_DATA_MARKER, "－", "–", "—", "N/A", "n/a", "NA"
 
 def to_number(v):
     """None for a genuinely missing cell / an explicit "no data" marker
-    (NO_DATA_MARKER "-" or a lookalike dash/NA the real sheets might
-    use instead) -- otherwise parses the cell as a float, tolerating
-    common real-world spreadsheet formatting a raw float(v) can't
-    handle directly: a trailing "%" or "점", thousands-separator commas,
-    and surrounding whitespace. This matters because a real cell coming
-    back from xlwings as e.g. the STRING "82.5%" would silently fail
-    float(v) and be treated as "no data" even though it's a real score
-    — exactly the failure mode behind "값이 안 나타남" reports where
-    labels/columns are already correct but every score/yoy is empty."""
+    (NO_DATA_MARKER "-", a lookalike dash/NA, or an Excel FORMULA ERROR
+    like "#DIV/0!"/"#N/A"/"#VALUE!" — a real case: a department with 0
+    respondents can leave a rate cell as "#DIV/0!", which means exactly
+    the same thing as an explicit "-": there's no real score to report,
+    not a corrupt one) -- otherwise parses the cell as a float,
+    tolerating common real-world spreadsheet formatting a raw float(v)
+    can't handle directly: a trailing "%" or "점", thousands-separator
+    commas, and surrounding whitespace. This matters because a real
+    cell coming back from xlwings as e.g. the STRING "82.5%" would
+    silently fail float(v) and be treated as "no data" even though it's
+    a real score — exactly the failure mode behind "값이 안 나타남"
+    reports where labels/columns are already correct but every
+    score/yoy is empty. A NaN result (however it arises — some readers
+    turn an Excel error into a literal float NaN instead of an error
+    string) is also mapped to None, since Python's json module would
+    otherwise write NaN out as a bare, non-standard token that breaks
+    the dashboard's JSON.parse()."""
     if v is None or v == "":
         return None
     if isinstance(v, str):
         s = v.strip()
-        if s == "" or s in NO_DATA_TEXT_VARIANTS:
+        if s == "" or s in NO_DATA_TEXT_VARIANTS or s.startswith("#"):
             return None
         s = s.replace(",", "").rstrip("%").rstrip("점").strip()
         try:
-            return float(s)
+            v = float(s)
         except ValueError:
             return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
+    else:
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+    return None if math.isnan(v) else v
 
 
 def build_column_map(values, header_row_1idx=3, sub_row_1idx=4, first_data_col_1idx=6, verbose=False):
