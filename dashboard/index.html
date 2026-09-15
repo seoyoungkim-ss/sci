@@ -3791,6 +3791,17 @@ function yoyInlineHtml(v) {
   return ` <span class="yoy ${cls} yoy-inline">${arrow}${Math.abs(v).toFixed(1)}</span>`;
 }
 
+/** "사업부 비교" 세그먼트의 소분류 라벨이 부서명이 아니라 부서코드로 되어
+ * 있는 실 데이터가 있어("R120", "T121"처럼 표시되어 알아보기 어려움) —
+ * 코드로 매칭되는 부서가 있으면 이름으로 바꿔서 보여줍니다. 근속/성별
+ * 구간처럼 애초에 부서코드가 아닌 라벨은 매칭되는 게 없으니 그대로 둡니다.
+ * seg.categories 배열 자체(점수 인덱싱 기준)는 건드리지 않고 화면 표시에만
+ * 적용합니다. */
+function prettifySegmentCategory(cat) {
+  const rec = state.recordsByCode[cat];
+  return rec ? rec.dept_name : cat;
+}
+
 function renderSegmentTab(container, data) {
   const dept = state.segmentData[state.selectedCode];
   const segKeys = dept?.segments ? Object.keys(dept.segments) : [];
@@ -3811,18 +3822,19 @@ function renderSegmentTab(container, data) {
       </select></label>
     </div>`;
 
+  const displayCategories = seg.categories.map(prettifySegmentCategory);
   const areaSeries = AREA_DEFS.map((area, i) => ({
     name: area.key,
     values: seg.categories.map((_, ci) => seg.areas?.[area.key]?.score?.[ci] ?? null),
     color: ["var(--coral)", "var(--gold)", "var(--navy-600)"][i],
   }));
   html += chartBlockHtml(
-    renderGroupedBarChartSVG(seg.categories, areaSeries),
+    renderGroupedBarChartSVG(displayCategories, areaSeries),
     `세그먼트비교_${data.dept_name}_${state.selectedSegmentKey}`,
     `"${escapeHtml(state.selectedSegmentKey)}" 구간별 영역 점수`
   );
 
-  html += `<table class="data-table"><thead><tr><th>구분</th>${seg.categories.map(c => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>`;
+  html += `<table class="data-table"><thead><tr><th>구분</th>${displayCategories.map(c => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>`;
   for (const area of AREA_DEFS) {
     const a = seg.areas?.[area.key];
     html += `<tr><td><b>${escapeHtml(area.key)}</b></td>${seg.categories.map((c, ci) => `<td>${fmtScore(a?.score?.[ci])}${yoyInlineHtml(a?.yoy?.[ci])}</td>`).join("")}</tr>`;
