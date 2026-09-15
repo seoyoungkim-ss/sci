@@ -132,9 +132,31 @@ def find_dept_name(values):
     return None
 
 
+NO_DATA_TEXT_VARIANTS = {NO_DATA_MARKER, "－", "–", "—", "N/A", "n/a", "NA"}
+
+
 def to_number(v):
-    if v is None or v == "" or (isinstance(v, str) and v.strip() == NO_DATA_MARKER):
+    """None for a genuinely missing cell / an explicit "no data" marker
+    (NO_DATA_MARKER "-" or a lookalike dash/NA the real sheets might
+    use instead) -- otherwise parses the cell as a float, tolerating
+    common real-world spreadsheet formatting a raw float(v) can't
+    handle directly: a trailing "%" or "점", thousands-separator commas,
+    and surrounding whitespace. This matters because a real cell coming
+    back from xlwings as e.g. the STRING "82.5%" would silently fail
+    float(v) and be treated as "no data" even though it's a real score
+    — exactly the failure mode behind "값이 안 나타남" reports where
+    labels/columns are already correct but every score/yoy is empty."""
+    if v is None or v == "":
         return None
+    if isinstance(v, str):
+        s = v.strip()
+        if s == "" or s in NO_DATA_TEXT_VARIANTS:
+            return None
+        s = s.replace(",", "").rstrip("%").rstrip("점").strip()
+        try:
+            return float(s)
+        except ValueError:
+            return None
     try:
         return float(v)
     except (TypeError, ValueError):
@@ -202,13 +224,25 @@ def build_column_map(values, header_row_1idx=3, sub_row_1idx=4, first_data_col_1
     return columns
 
 
-def parse_area_item_rows(values, columns, row_start_1idx=9):
+def parse_area_item_rows(values, columns, row_start_1idx=9, verbose=False):
     """Walks rows top-to-bottom from row_start_1idx, using columns A/B/C
     (0-based indices 0/1/2) to tell area-total / item / question rows
     apart by whichever of the three is non-empty on that row — see the
     module docstring for why this isn't hardcoded to fixed row numbers.
-    Returns (areas, items, questions), each {label: {category: {"score", "yoy"}}}."""
+    Returns (areas, items, questions), each {label: {category: {"score", "yoy"}}}.
+
+    verbose=True prints the RAW (pre-to_number) cell values under the
+    first couple of columns for the first labeled row found — use this
+    whenever area/item labels show up correctly but every score/yoy
+    comes back empty, since that's a sign the label detection is fine
+    but to_number() can't parse whatever these real cells actually
+    contain (e.g. a percent-formatted string like "82.5%", a
+    comma-decimal, a formula error object, or a dash character that
+    isn't literally NO_DATA_MARKER) — seeing the exact repr()/type of a
+    real cell pinpoints this in one run instead of guessing at the
+    format blind."""
     areas, items, questions = {}, {}, {}
+    sample_printed = False
 
     for row in values[row_start_1idx - 1:]:
         if not row or all((c in (None, "") for c in row[:3])):
@@ -225,6 +259,18 @@ def parse_area_item_rows(values, columns, row_start_1idx=9):
             target = questions.setdefault(str(c).strip(), {})
         else:
             continue
+
+        if verbose and not sample_printed and columns:
+            label = str(a or b or c).strip()
+            print(f"    -- raw cell sample (label='{label}'):", file=sys.stderr)
+            for col_def in columns[:3]:
+                raw_score = row[col_def["score_col"]] if col_def["score_col"] < len(row) else "<컬럼 범위 밖>"
+                yoy_col = col_def["yoy_col"]
+                raw_yoy = (row[yoy_col] if yoy_col is not None and yoy_col < len(row) else "<없음/범위 밖>")
+                print(f"       {col_def['major']}/{col_def['category']}: "
+                      f"score={raw_score!r} ({type(raw_score).__name__}) -> {to_number(raw_score)!r}, "
+                      f"yoy={raw_yoy!r} ({type(raw_yoy).__name__}) -> {to_number(raw_yoy)!r}", file=sys.stderr)
+            sample_printed = True
 
         for col_def in columns:
             score = to_number(row[col_def["score_col"]] if col_def["score_col"] < len(row) else None)
@@ -265,7 +311,7 @@ def parse_sheet_structure(values, verbose=False):
     columns = build_column_map(values, verbose=verbose)
     if not columns:
         return [], {}, {}, {}
-    areas, items, questions = parse_area_item_rows(values, columns)
+    areas, items, questions = parse_area_item_rows(values, columns, verbose=verbose)
     return columns, areas, items, questions
 
 
