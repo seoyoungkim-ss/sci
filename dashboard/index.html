@@ -4358,9 +4358,32 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
   if (!file) return;
   const statusEl = document.getElementById("survey-load-status");
   readJsonFile(file, (json) => {
-    const records = Array.isArray(json) ? json : json.records || [];
-    if (!records.length || !records[0]?.dept_code) {
-      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 (부서 배열이 비어있거나 dept_code 필드가 없음)`;
+    // Broken out into 3 specific checks (instead of one catch-all) so a
+    // bad file says exactly what's wrong instead of a single generic
+    // "형식이 다릅니다" — the previous version couldn't tell a user
+    // whether the top-level shape, an empty array, or a missing/renamed
+    // field was the actual problem, which made it impossible to
+    // self-diagnose or report back precisely.
+    const records = Array.isArray(json) ? json : (Array.isArray(json?.records) ? json.records : null);
+    if (records === null) {
+      const gotType = Array.isArray(json) ? "array" : typeof json;
+      const topKeys = json && typeof json === "object" ? Object.keys(json).slice(0, 15) : [];
+      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 — JSON 최상위가 부서 배열([...]) 이거나 { "records": [...] } 형태여야 합니다 (현재: ${gotType}${topKeys.length ? `, 키: ${topKeys.join(", ")}` : ""})`;
+      statusEl.className = "load-status error";
+      return;
+    }
+    if (!records.length) {
+      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 — 부서 배열이 비어 있습니다`;
+      statusEl.className = "load-status error";
+      return;
+    }
+    // dept_code === undefined/null (not a truthiness check): a real
+    // department code that happens to be 0 or "0" is falsy in JS but
+    // perfectly valid, and used to be wrongly rejected here.
+    const first = records[0];
+    if (first == null || typeof first !== "object" || first.dept_code === undefined || first.dept_code === null) {
+      const sampleKeys = first && typeof first === "object" ? Object.keys(first) : [];
+      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 — 첫 부서 항목에 dept_code 필드가 없습니다 (현재 필드: ${sampleKeys.length ? sampleKeys.join(", ") : "없음"})`;
       statusEl.className = "load-status error";
       return;
     }
