@@ -513,7 +513,33 @@ def main():
     if out_path.exists():
         with open(out_path, "r", encoding="utf-8") as f:
             existing = json.load(f)
-        existing.setdefault("departments", {}).update(departments)
+        existing_departments = existing.setdefault("departments", {})
+
+        # Accumulating across multiple runs (e.g. re-running the loader
+        # once for each batch of files, since not all of them can be
+        # opened in one sitting) is intentional -- but out_path can also
+        # still be carrying an OLDER department set that's no longer
+        # valid, most commonly the dummy sample data committed at
+        # data/segment_data.json before any real workbook was ever
+        # loaded. Blindly merging on top of that keeps those stale
+        # entries forever (real symptom: "파일은 44개인데 68개 부서
+        # 누적으로 떠" -- 44 real + 24 leftover dummy departments).
+        # Since dept_code_by_name above is loaded from whatever
+        # survey_data.json/dummy_survey_data.json is on disk RIGHT NOW,
+        # it's the current source of truth for which dept_codes are
+        # actually valid -- drop anything in the existing file that
+        # isn't in that set instead of accumulating it forever.
+        valid_codes = set(dept_code_by_name.values())
+        if valid_codes:
+            stale = {code: rec for code, rec in existing_departments.items() if code not in valid_codes}
+            if stale:
+                stale_desc = ", ".join(f"{rec.get('dept_name', code)}({code})" for code, rec in stale.items())
+                print(f"  {out_path.name}에 있던 {len(stale)}개 부서가 현재 survey 데이터에 없어 "
+                      f"오래된/더미 항목으로 보고 제거합니다: {stale_desc}", file=sys.stderr)
+                for code in stale:
+                    del existing_departments[code]
+
+        existing_departments.update(departments)
         payload = existing
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
