@@ -431,6 +431,9 @@
   .exec-reason { font-size: 11.5px; color: var(--navy-700); }
   .exec-comment { background: var(--navy-100); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; color: var(--navy-800); margin-top: 10px; line-height: 1.6; }
   .exec-comment b { color: var(--coral-dark); }
+  .exec-filter-row { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; }
+  .exec-filter-checkbox { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--navy-800); cursor: pointer; }
+  .exec-filter-checkbox input { cursor: pointer; }
   .summary-footer { font-size: 11px; color: var(--muted); text-align: right; margin-top: 10px; }
   table.exec-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 4px; }
   table.exec-table th, table.exec-table td { padding: 7px 9px; border: 1px solid var(--border); text-align: left; }
@@ -632,11 +635,9 @@ const ANALYSIS = {
  * section — tune here. */
 const EXEC_SUMMARY = {
   RISK_TOP_N: 10,
-  VARIANCE_TOP_N: 5,
-  DRIVER_TOP_N: 3,
-  LEADER_TOP_N: 5,
-  GOOD_SCORE_THRESHOLD: 75,   // Lv2 조직별 현황: 종합점수가 이 값 이상이면 "고득점"
-  LOW_SAMPLE_THRESHOLD: 6,    // Lv2 조직별 현황: 응답인원이 이 값 미만이면 "표본 부족" 별도 표기
+  VARIANCE_TOP_N: 1,
+  GOOD_SCORE_THRESHOLD: 75,   // Lv2/Lv3 조직별 현황: 종합점수가 이 값 이상이면 "고득점"
+  LOW_SAMPLE_THRESHOLD: 6,    // Lv2/Lv3 조직별 현황: 응답인원이 이 값 미만인 조직은 목록에서 제외
   UNCLASSIFIED_TOP_N: 5,
 };
 
@@ -2492,6 +2493,10 @@ const state = {
   // 요약" sheet. Keyed by dept_code; empty until "세그먼트 데이터 불러오기".
   segmentData: {},
   selectedSegmentKey: null, // which segment (근속/성별/...) is showing on the 세그먼트비교 tab
+  // 경영진 요약의 "위험군 부서 통합 리스트" 카테고리 체크박스 — 기본값은
+  // 전부 켜짐(필터 없음)이고, 체크 해제한 카테고리에 해당하는 사유만 있는
+  // 부서는 목록에서 빠집니다.
+  execRiskFilter: { "이상치": true, "응답률 낮음": true, "전년비 하락": true },
   expandedTreeNodes: new Set(),
   dragCode: null,
   report: {
@@ -3045,13 +3050,18 @@ function evaluateExecutiveRisk(code) {
 
 /** Top-N most severe departments across the WHOLE tree (every org unit,
  * not just one subtree), ranked by number of flags first and then by
- * how extreme the outlier z-score is. */
-function computeExecutiveRiskList(topN) {
+ * how extreme the outlier z-score is. `enabledTags` (defaults to
+ * state.execRiskFilter) lets the 위험군 부서 통합 리스트's category
+ * checkboxes exclude a department entirely when NONE of its reasons
+ * belong to a checked category, rather than just hiding a tag chip
+ * while still showing the row. */
+function computeExecutiveRiskList(topN, enabledTags) {
+  const enabled = enabledTags || state.execRiskFilter;
   const results = [];
   function visit(code) {
     for (const child of childrenByParent()[code] || []) {
       const r = evaluateExecutiveRisk(child);
-      if (r) results.push(r);
+      if (r && r.tags.some(t => enabled[t])) results.push(r);
       visit(child);
     }
   }
@@ -3087,20 +3097,6 @@ function computeVarianceRanking(topN) {
   return results.slice(0, topN);
 }
 
-/** Company-wide leaders ranked by how far their (response-weighted)
- * overall score deviates from the all-leader average — both unusually
- * high and unusually low performers surface, same |Z|-ranking idea as
- * the department outlier check above but over leaders instead. */
-function computeLeadershipOutliers(topN) {
-  const leaders = computeLeaderStats().filter(l => l.overall !== null);
-  if (leaders.length < ANALYSIS.MIN_GROUP_SIZE_FOR_STATS) return [];
-  const vals = leaders.map(l => l.overall);
-  const m = mean(vals), sd = stddev(vals);
-  const rows = leaders.map(l => ({ ...l, groupAvg: m, delta: l.overall - m, z: sd ? (l.overall - m) / sd : 0 }));
-  rows.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
-  return rows.slice(0, topN);
-}
-
 /** 4-way health label from a department's own overall score and YoY:
  * 우수(고득점·상승) / 양호(고득점·하락) / 개선(저득점·상승) / 주의(저득점·하락).
  * Returns null ("분류불가") when either figure is missing — most often
@@ -3118,44 +3114,55 @@ function classifyOrgStatus(score, yoy) {
   return "주의";
 }
 
-/** Per-department breakdown for every dept_level === 2 department (the
- * "9~10개 Lv2 조직" the exec summary asks to characterize individually)
- * — health label via classifyOrgStatus() above, plus a low-response-
- * count flag kept separate from the label itself per the request that
- * low-sample departments be called out on their own rather than folded
- * into (or excluded from) the 4-way classification. */
-function computeLv2Breakdown() {
-  const lv2Codes = [...new Set(state.surveyData.filter(r => r.dept_level === 2).map(r => r.dept_code))];
-  const rows = lv2Codes.map(code => {
+/** Per-department breakdown for every dept_level 2 AND 3 department —
+ * health label via classifyOrgStatus() above, each area's own score
+ * (즐거운일/함께하는동료/자랑스러운회사) shown directly instead of a
+ * single 종합점수 number, plus 응답률. Departments below
+ * EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD respondents are dropped entirely
+ * (not just flagged) — a low-sample org's own score is unreliable
+ * enough that showing it next to reliable ones invites the wrong
+ * comparison. */
+function computeExecOrgStatus() {
+  const byCode = new Map();
+  for (const r of state.surveyData) {
+    if ((r.dept_level === 2 || r.dept_level === 3) && !byCode.has(r.dept_code)) {
+      byCode.set(r.dept_code, r.dept_level);
+    }
+  }
+  const rows = [...byCode.entries()].map(([code, level]) => {
     const rec = rollup(code);
     if (!rec) return null;
+    if (typeof rec.response_count === "number" && rec.response_count < EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD) {
+      return null; // 표본 부족 조직은 목록에서 제외
+    }
     const score = overallScore(rec);
     const yoyVals = AREA_DEFS.map(a => rec.area_yoy?.[a.key]).filter(v => typeof v === "number");
     const yoy = yoyVals.length ? mean(yoyVals) : null;
     return {
-      code, name: rec.dept_name, score, yoy,
+      code, name: rec.dept_name, level, score, yoy,
       status: classifyOrgStatus(score, yoy),
-      responseCount: rec.response_count,
-      lowSample: typeof rec.response_count === "number" && rec.response_count < EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD,
+      areaScores: Object.fromEntries(AREA_DEFS.map(a => [a.key, rec.area_scores?.[a.key] ?? null])),
+      responseRate: rec.response_rate,
     };
   }).filter(Boolean);
-  rows.sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
+  rows.sort((a, b) => (a.level - b.level) || ((b.score ?? -Infinity) - (a.score ?? -Infinity)));
   return rows;
 }
 
-/** Spells out the exact numbers behind a computeLv2Breakdown() row's
- * status label, so the classification is never just a bare tag. */
-function lv2RationaleText(row) {
+/** Spells out the reasoning behind a computeExecOrgStatus() row's status
+ * label without printing the raw 종합점수 number (경영진 요약에서는
+ * 종합점수 자체를 노출하지 않기로 함 — 영역별 점수로 대체) — still names
+ * whether it cleared the score threshold and which way YoY moved, so the
+ * classification is never just a bare tag. */
+function execOrgRationaleText(row) {
   if (row.status === null) {
-    return `종합점수 ${fmtScore(row.score)} · 전년비 데이터 없음 — 이 부서 자체 보고값이 없어 분류 불가`;
+    return `전년비 데이터 없음 — 이 부서 자체 보고값이 없어 분류 불가`;
   }
-  const scoreLabel = row.score >= EXEC_SUMMARY.GOOD_SCORE_THRESHOLD
-    ? `${EXEC_SUMMARY.GOOD_SCORE_THRESHOLD}점 이상`
-    : `${EXEC_SUMMARY.GOOD_SCORE_THRESHOLD}점 미만`;
+  const scoreLabel = row.score >= EXEC_SUMMARY.GOOD_SCORE_THRESHOLD ? "고득점" : "저득점";
   const yoyLabel = row.yoy > 0 ? "상승" : "하락";
-  return `종합점수 ${fmtScore(row.score)}점(${scoreLabel}) · 전년비 평균 ${row.yoy >= 0 ? "+" : ""}${row.yoy.toFixed(1)}(${yoyLabel}) → ${row.status}`;
+  return `${scoreLabel}(기준 ${EXEC_SUMMARY.GOOD_SCORE_THRESHOLD}점) · 전년비 평균 ${row.yoy >= 0 ? "+" : ""}${row.yoy.toFixed(1)}(${yoyLabel}) → ${row.status}`;
 }
-const LV2_STATUS_CLASS = { "우수": "good", "양호": "ok", "개선": "improve", "주의": "warn" };
+const EXEC_ORG_STATUS_CLASS = { "우수": "good", "양호": "ok", "개선": "improve", "주의": "warn" };
 
 /** Every organization with a computeUnclassified() gap, ranked by a
  * simple combined "how much this matters" score: the unclassified
@@ -3900,26 +3907,26 @@ function renderSummaryStatBar(rootData) {
   return `<div class="exec-section">${html}</div>`;
 }
 
-/** Lv2(레벨2) 조직별 현황: 요청받은 4가지 요구사항을 그대로 반영합니다 —
- * (1) Lv2에 속한 모든 조직을 개별 표기, (2) 우수/양호/개선/주의 4분류
- * 적용, (3) 응답인원 미달은 별도(비고) 표기, (4) 등급마다 근거 문구 표기. */
-function renderExecLv2Section() {
-  const rows = computeLv2Breakdown();
-  let html = `<div class="exec-section-title">Lv2 조직별 현황 (${rows.length}개)</div>
-    <div class="exec-section-desc">종합점수 ${EXEC_SUMMARY.GOOD_SCORE_THRESHOLD}점 · 전년비(영역 3개 평균) 상승/하락 기준 4분류 — 우수(점수↑·전년비↑) · 양호(점수↑·전년비↓) · 개선(점수↓·전년비↑) · 주의(점수↓·전년비↓). 이 부서 자체의 전년비 보고값이 없으면 분류불가로 표시합니다. 응답인원 ${EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD}명 미만은 비고에 별도 표기합니다.</div>`;
+/** Lv2/Lv3 조직별 현황: 종합점수 대신 3개 영역(즐거운일/함께하는동료/
+ * 자랑스러운회사) 점수를 각각 보여주고, 응답률을 표기하며, 표본이 부족한
+ * (EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD명 미만) 조직은 computeExecOrgStatus()
+ * 단계에서 아예 제외합니다. */
+function renderExecOrgStatusSection() {
+  const rows = computeExecOrgStatus();
+  let html = `<div class="exec-section-title">Lv2/Lv3 조직별 현황 (${rows.length}개)</div>
+    <div class="exec-section-desc">영역별 점수 · 응답률과 함께 종합점수 ${EXEC_SUMMARY.GOOD_SCORE_THRESHOLD}점 · 전년비(영역 3개 평균) 상승/하락 기준 4분류 — 우수(점수↑·전년비↑) · 양호(점수↑·전년비↓) · 개선(점수↓·전년비↑) · 주의(점수↓·전년비↓). 이 부서 자체의 전년비 보고값이 없으면 분류불가로 표시합니다. 응답인원 ${EXEC_SUMMARY.LOW_SAMPLE_THRESHOLD}명 미만 조직은 표본 부족으로 이 표에서 제외했습니다.</div>`;
   if (!rows.length) {
-    html += `<div class="note-box">Lv2(레벨2) 조직 데이터가 없습니다.</div>`;
+    html += `<div class="note-box">Lv2/Lv3 조직 데이터가 없습니다.</div>`;
   } else {
-    html += `<table class="exec-table"><thead><tr><th>#</th><th>조직명</th><th>종합점수</th><th>전년비(평균)</th><th>응답인원</th><th>등급</th><th>근거</th><th>비고</th></tr></thead><tbody>
+    html += `<table class="exec-table"><thead><tr><th>#</th><th>조직명</th><th>구분</th>${AREA_DEFS.map(a => `<th>${escapeHtml(a.key)}</th>`).join("")}<th>응답률</th><th>등급</th><th>근거</th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr>
         <td>${i + 1}</td>
         <td>${escapeHtml(r.name)}</td>
-        <td class="num">${fmtScore(r.score)}</td>
-        <td class="num">${r.yoy === null ? "-" : `${r.yoy >= 0 ? "+" : ""}${r.yoy.toFixed(1)}`}</td>
-        <td class="num">${typeof r.responseCount === "number" ? `${r.responseCount}명` : "-"}</td>
-        <td>${r.status ? `<span class="exec-tag ${LV2_STATUS_CLASS[r.status]}">${r.status}</span>` : `<span class="exec-tag na">분류불가</span>`}</td>
-        <td class="exec-reason">${escapeHtml(lv2RationaleText(r))}</td>
-        <td>${r.lowSample ? `<span class="exec-tag response">표본 부족(${r.responseCount}명)</span>` : ""}</td>
+        <td>Lv${r.level}</td>
+        ${AREA_DEFS.map(a => `<td class="num">${fmtScore(r.areaScores[a.key])}</td>`).join("")}
+        <td class="num">${fmtPct(r.responseRate)}</td>
+        <td>${r.status ? `<span class="exec-tag ${EXEC_ORG_STATUS_CLASS[r.status]}">${r.status}</span>` : `<span class="exec-tag na">분류불가</span>`}</td>
+        <td class="exec-reason">${escapeHtml(execOrgRationaleText(r))}</td>
       </tr>`).join("")}
     </tbody></table>`;
   }
@@ -3928,10 +3935,21 @@ function renderExecLv2Section() {
 
 function renderExecRiskSection() {
   const rows = computeExecutiveRiskList(EXEC_SUMMARY.RISK_TOP_N);
+  const filterOptions = [
+    { tag: "이상치", label: "이상치" },
+    { tag: "응답률 낮음", label: "응답률 낮은 경우" },
+    { tag: "전년비 하락", label: "전년비 하락" },
+  ];
   let html = `<div class="exec-section-title">위험군 부서 통합 리스트 (상위 ${EXEC_SUMMARY.RISK_TOP_N}개)</div>
-    <div class="exec-section-desc">이상치(|Z|≥${ANALYSIS.OUTLIER_Z}) · 응답률 ${(ANALYSIS.RESPONSE_RATE_CAUTION * 100).toFixed(0)}% 미만 · 전년비 하락(그룹평균 초과 하락폭) 중 하나 이상 해당하는 부서를 통합해 사유 개수·심각도 순으로 정렬했습니다.</div>`;
+    <div class="exec-section-desc">이상치(|Z|≥${ANALYSIS.OUTLIER_Z}) · 응답률 ${(ANALYSIS.RESPONSE_RATE_CAUTION * 100).toFixed(0)}% 미만 · 전년비 하락(그룹평균 초과 하락폭) 중 하나 이상 해당하는 부서를 통합해 사유 개수·심각도 순으로 정렬했습니다. 체크박스로 원하는 카테고리만 골라 볼 수 있습니다.</div>
+    <div class="exec-filter-row">${filterOptions.map(f => `
+      <label class="exec-filter-checkbox">
+        <input type="checkbox" class="exec-risk-filter-cb" data-tag="${escapeHtml(f.tag)}" ${state.execRiskFilter[f.tag] ? "checked" : ""}>
+        ${escapeHtml(f.label)}
+      </label>`).join("")}</div>`;
   if (!rows.length) {
-    html += `<div class="note-box">현재 조건에 해당하는 위험군 부서가 없습니다.</div>`;
+    const anyEnabled = filterOptions.some(f => state.execRiskFilter[f.tag]);
+    html += `<div class="note-box">${anyEnabled ? "현재 조건에 해당하는 위험군 부서가 없습니다." : "선택된 카테고리가 없습니다 — 위 체크박스에서 하나 이상 선택하세요."}</div>`;
   } else {
     html += `<table class="exec-table"><thead><tr><th>#</th><th>부서명</th><th>상위조직</th><th>종합점수</th><th>사유</th><th>근거</th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr>
@@ -3944,7 +3962,7 @@ function renderExecRiskSection() {
       </tr>`).join("")}
     </tbody></table>`;
   }
-  return `<div class="exec-section">${html}</div>`;
+  return `<div class="exec-section" id="exec-risk-section">${html}</div>`;
 }
 
 function renderExecVarianceSection() {
@@ -3963,22 +3981,6 @@ function renderExecVarianceSection() {
         <td>${escapeHtml(r.hiName)} / ${escapeHtml(r.loName)}</td>
       </tr>`).join("")}
     </tbody></table>`;
-  }
-  return `<div class="exec-section">${html}</div>`;
-}
-
-function renderExecDriverSection() {
-  const result = computeCompanyBetas();
-  let html = `<div class="exec-section-title">핵심동인 Top ${EXEC_SUMMARY.DRIVER_TOP_N} (전사 기준)</div>
-    <div class="exec-section-desc">"회사만족"에 대한 표준화 회귀계수(베타) 절대값 기준입니다.</div>`;
-  if (!result.ok) {
-    html += `<div class="note-box">표본 부족으로 분석 제외 (전사 유효 부서 ${result.n}개)</div>`;
-  } else {
-    const top = result.betas.slice(0, EXEC_SUMMARY.DRIVER_TOP_N);
-    html += `<table class="exec-table"><thead><tr><th>#</th><th>항목</th><th>베타</th></tr></thead><tbody>
-      ${top.map((b, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(b.item)}</td><td class="num">${b.beta >= 0 ? "+" : ""}${b.beta.toFixed(3)}</td></tr>`).join("")}
-    </tbody></table>
-    <div class="exec-comment"><b>${escapeHtml(top[0].item)}</b> 항목이 가장 큰 영향 요인으로 나타남 (베타 ${top[0].beta.toFixed(3)}, 전사 유효 부서 ${result.n}개 기준).</div>`;
   }
   return `<div class="exec-section">${html}</div>`;
 }
@@ -4005,28 +4007,6 @@ function renderExecUnclassifiedSection() {
   return `<div class="exec-section">${html}</div>`;
 }
 
-function renderExecLeadershipSection() {
-  const rows = computeLeadershipOutliers(EXEC_SUMMARY.LEADER_TOP_N);
-  let html = `<div class="exec-section-title">부서장 리더십 이상치 (상위 ${EXEC_SUMMARY.LEADER_TOP_N}명)</div>
-    <div class="exec-section-desc">전체 부서장 평균 대비 점수 편차가 큰 순서로 정렬했습니다 (높은 쪽/낮은 쪽 모두 포함).</div>`;
-  if (!rows.length) {
-    html += `<div class="note-box">비교할 부서장이 부족합니다.</div>`;
-  } else {
-    html += `<table class="exec-table"><thead><tr><th>#</th><th>부서장</th><th>담당부서</th><th>점수</th><th>그룹평균</th><th>편차</th><th>Z-score</th></tr></thead><tbody>
-      ${rows.map((l, i) => `<tr>
-        <td>${i + 1}</td>
-        <td>${escapeHtml(l.leader_name)} <span class="code">(${escapeHtml(l.leader_id)})</span></td>
-        <td>${l.depts.map(d => escapeHtml(d.dept_name)).join(", ")}</td>
-        <td class="num">${fmtScore(l.overall)}</td>
-        <td class="num">${l.groupAvg.toFixed(1)}</td>
-        <td class="num">${l.delta >= 0 ? "+" : ""}${l.delta.toFixed(1)}</td>
-        <td class="num">${l.z.toFixed(2)}</td>
-      </tr>`).join("")}
-    </tbody></table>`;
-  }
-  return `<div class="exec-section">${html}</div>`;
-}
-
 function renderSummaryMode() {
   const el = document.getElementById("summary-content");
   const rootCode = rootCodes()[0];
@@ -4039,14 +4019,20 @@ function renderSummaryMode() {
     <div class="summary-page-title">부서 건강도 경영진 요약</div>
     <div class="summary-page-subtitle">"${escapeHtml(rootData.dept_name)}" 최상위 조직 기준 · 회차 ${escapeHtml(state.round || "-")}</div>
     ${renderSummaryStatBar(rootData)}
-    ${renderExecLv2Section()}
+    ${renderExecOrgStatusSection()}
     ${renderExecRiskSection()}
     ${renderExecUnclassifiedSection()}
     ${renderExecVarianceSection()}
-    ${renderExecDriverSection()}
-    ${renderExecLeadershipSection()}
     <div class="summary-footer">데이터 갱신 시점: ${fmtDateTime(state.dataLoadedAt)}</div>
   `;
+  // 위험군 부서 통합 리스트 카테고리 체크박스: el 자체는 렌더링마다 재사용되는
+  // 안정된 노드이므로, addEventListener를 매번 새로 붙이면 호출할 때마다
+  // 리스너가 쌓입니다 — onchange 단일 슬롯 할당으로 항상 최신 한 개만 유지.
+  el.onchange = (e) => {
+    if (!e.target.matches(".exec-risk-filter-cb")) return;
+    state.execRiskFilter[e.target.dataset.tag] = e.target.checked;
+    document.getElementById("exec-risk-section").outerHTML = renderExecRiskSection();
+  };
 }
 
 const TAB_RENDERERS = {
