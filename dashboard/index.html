@@ -2659,6 +2659,28 @@ function rollup(code) {
   const children = childrenByParent()[code] || [];
   const own = state.recordsByCode[code];
 
+  // A department that was itself directly surveyed (its own row in the
+  // Excel export, own.target_count > 0) always wins over recomputing
+  // from children, even when it has children. Summing only the
+  // children's headcount silently drops anyone the sub-department split
+  // didn't capture (미분류/unclassified 인원) — understating this
+  // department's true total and skewing every rate/average derived from
+  // it (real report: "미분류인원을 전체 모수에서 빼면 안되는데
+  // 빼버려서 값이 틀어짐"). own.target_count > 0 is exactly the same
+  // "was this level actually surveyed on its own" check
+  // computeUnclassified() already uses below — a placeholder parent row
+  // with no survey of its own (target_count: 0, see
+  // generate_dummy_data.py's build_parent_placeholder for the dummy-data
+  // shape of this) still falls through to the children rollup, same as
+  // before. The unclassified-impact ESTIMATE itself is a separate,
+  // deliberately reverse-solved calculation (computeUnclassified() below)
+  // used only for the "미분류 인원 영향이 큰 조직" analysis — it is never
+  // substituted into a department's own reported numbers here.
+  if (own && own.target_count > 0) {
+    rollupCache[code] = own;
+    return own;
+  }
+
   if (children.length === 0) {
     rollupCache[code] = own || null;
     return rollupCache[code];
@@ -2716,11 +2738,11 @@ function rollup(code) {
   return rollupCache[code];
 }
 
-/** rollup() above always computes a parent's numbers purely from its
- * children's weighted average — it never uses the parent's OWN
- * directly-surveyed row (state.recordsByCode[code]) once children
- * exist. That own row is exactly where a mismatch shows up: if HR
- * surveyed "A플랫폼" as a whole (own.response_count = its own real
+/** rollup() above prefers a department's own directly-surveyed row
+ * (state.recordsByCode[code]) whenever it was itself actually surveyed,
+ * and only recomputes from children as a fallback for a level that
+ * wasn't. That own row is exactly where a mismatch can still show up:
+ * if HR surveyed "A플랫폼" as a whole (own.response_count = its own real
  * total) but the sub-teams underneath it only add up to less than
  * that, some respondents aren't captured under any child department.
  * Their combined score doesn't exist anywhere in the data, so it's
@@ -3101,9 +3123,9 @@ function computeVarianceRanking(topN) {
  * 우수(고득점·상승) / 양호(고득점·하락) / 개선(저득점·상승) / 주의(저득점·하락).
  * Returns null ("분류불가") when either figure is missing — most often
  * because this department's own record has no directly-reported YoY
- * (rollup() only surfaces area_yoy from a department's OWN row, never
- * aggregated from children — see reconcileOrgMapWithSurveyData's
- * neighboring comments), so guessing a label would be misleading. */
+ * (a placeholder/non-surveyed org-tree node falls back to rollup()'s
+ * children computation, which has no own row to read a YoY from at
+ * all), so guessing a label would be misleading. */
 function classifyOrgStatus(score, yoy) {
   if (typeof score !== "number" || typeof yoy !== "number") return null;
   const highScore = score >= EXEC_SUMMARY.GOOD_SCORE_THRESHOLD;
