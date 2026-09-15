@@ -97,8 +97,18 @@ dashboard/index.html        단일 HTML 대시보드 (조회모드 + 관리자�
    `data/segment_data.json`으로 저장합니다. 4번째 마스터 시트와 달리 **부서마다
    세그먼트 컬럼 구성(예: 비교 대상 사업부 수)이 다를 수 있어서 컬럼을 고정 letter로
    하드코딩하지 않고, 매 시트마다 3~4행 헤더(대분류/소분류)를 런타임에 읽어 컬럼
-   위치를 동적으로 매핑**합니다 (`segment_loader.py`의 `build_column_map()`). 이
-   스크립트는 실제 워크북 샘플 없이 텍스트 설명만으로 작성되었으므로, 파일 상단
+   위치를 동적으로 매핑**합니다 (`segment_loader.py`의 `build_column_map()`).
+
+   조직별 상세 데이터가 **한 워크북 안의 여러 시트**로 되어 있든 **조직마다 별도
+   파일**(예: 전사 포함 총 44개)로 되어 있든 둘 다 지원합니다 — 경로를 여러 개
+   넘기면 각 파일의 모든 시트를 독립적으로 스캔합니다:
+   ```
+   python scripts/segment_loader.py C:\segments\*.xlsx --expected-count 44
+   ```
+   `--expected-count`를 주면 실행 끝에 "44/44개 파싱됨" 또는 몇 개가 비었고
+   survey 데이터 기준 어떤 부서명이 매칭 안 됐는지까지 바로 알려줍니다.
+
+   이 스크립트는 실제 워크북 샘플 없이 텍스트 설명만으로 작성되었으므로, 파일 상단
    docstring에 적어둔 가정(병합 헤더 처리 방식, 점수/전년대비 컬럼 쌍 해석 등)이
    실제 시트와 다르면 알려주시면 바로 고치겠습니다 — `python scripts/generate_dummy_segment_data.py`로
    만든 `data/segment_data.json`을 대시보드에 불러와 화면 동작 자체는 먼저 확인해볼 수 있습니다.

@@ -1,15 +1,25 @@
 """Loads each department's segment-detail sheet (근속/성별/연령/직군/경력
 개발단계/학력/사업부 비교 — see the dashboard's "세그먼트비교" tab) out of
-the same DRM-protected workbook xlwings_loader.py reads the master
-summary sheet from, and writes data/segment_data.json in the shape the
-dashboard's "세그먼트 데이터 불러오기" file picker expects:
+one or more DRM-protected workbooks, and writes data/segment_data.json
+in the shape the dashboard's "세그먼트 데이터 불러오기" file picker expects:
 
     { "departments": { "<dept_code>": { "dept_name", "response_count",
       "segments": { "<세그먼트명>": { "categories": [...],
       "areas": {...}, "items": {...} } } } } }
 
-Usage:
+Usage (a single multi-sheet workbook — every sheet scanned):
     python scripts/segment_loader.py "C:\\path\\to\\survey.xlsx" [--out out.json] [--sheets "1팀" "2팀"]
+
+Usage (44개 조직 각각 별도 파일인 경우 — 전사 포함, glob으로 한 번에):
+    python scripts/segment_loader.py C:\\segments\\*.xlsx --expected-count 44
+
+Multiple paths are always accepted (nargs="+") and every sheet in
+every one of them is scanned independently — this covers "한 워크북에
+여러 시트" and "조직마다 별도 파일" both, since it wasn't clear from the
+request alone which shape the real export takes. --expected-count lets
+you pass the total department count you expect (전사 최상위조직 포함)
+and get an explicit OK/mismatch summary at the end instead of having to
+notice a silent gap yourself.
 
 WHY THIS IS SEPARATE FROM xlwings_loader.py: that script reads ONE
 sheet with a FIXED column layout (every column letter hardcoded in
@@ -230,38 +240,30 @@ def open_workbook(path):
     return app, wb
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("workbook", help="Path to the DRM-protected .xlsx file")
-    parser.add_argument("--out", default=None, help="Output JSON path (default: data/segment_data.json)")
-    parser.add_argument("--sheets", nargs="*", default=None,
-                         help="Specific sheet names to parse (default: scan every sheet in the workbook "
-                              "for a '문항별 결과: ...' title and skip anything else)")
-    args = parser.parse_args()
-
-    dept_code_by_name = load_dept_code_lookup()
-    if not dept_code_by_name:
-        print("warning: no data/survey_data.json or dummy_survey_data.json found — "
-              "every sheet will be skipped since dept_name can't be matched to a dept_code. "
-              "Run the main loader (or generate_dummy_data.py) first.", file=sys.stderr)
-
-    app, wb = open_workbook(args.workbook)
+def parse_one_workbook(path, dept_code_by_name, sheet_filter=None):
+    """Opens a single .xlsx (one department's own file, or a multi-sheet
+    workbook holding several departments — both are supported, since a
+    "44개 조직별 상세 시트" description could mean either 44 sheets in
+    one file or 44 separate files) and returns {dept_code: {...}} for
+    every sheet in it that looks like a 문항별 결과 sheet. Prints one
+    line per sheet it either parses or explicitly skips, so a run over
+    many files/sheets is easy to audit against an expected total."""
+    departments = {}
+    app, wb = open_workbook(path)
     try:
-        targets = [wb.sheets[s] for s in args.sheets] if args.sheets else list(wb.sheets)
-
-        departments = {}
+        targets = [wb.sheets[s] for s in sheet_filter] if sheet_filter else list(wb.sheets)
         for sheet in targets:
             values = sheet.used_range.value
             if not values:
                 continue
             dept_name, segments = parse_segment_sheet(values)
             if dept_name is None:
-                continue  # not a 문항별 결과 sheet — silently skip (e.g. the master summary sheet)
+                continue  # not a 문항별 결과 sheet — silently skip (e.g. a master summary sheet)
             dept_code = dept_code_by_name.get(dept_name)
             if dept_code is None:
-                print(f"  warning: '{dept_name}' (sheet '{sheet.name}') has no matching dept_code in "
-                      f"survey data — skipped. Load/refresh survey data first, or check the name matches exactly.",
-                      file=sys.stderr)
+                print(f"  warning: '{dept_name}' (sheet '{sheet.name}' in {Path(path).name}) has no "
+                      f"matching dept_code in survey data — skipped. Load/refresh survey data first, "
+                      f"or check the name matches exactly.", file=sys.stderr)
                 continue
             response_row = values[5] if len(values) > 5 else []  # Row6 (0-based index 5) = 응답인원
             response_count = next((int(v) for v in response_row if isinstance(v, (int, float))), None)
@@ -270,10 +272,38 @@ def main():
                 "response_count": response_count,
                 "segments": segments,
             }
-            print(f"  parsed '{sheet.name}' -> {dept_name} ({dept_code}): {len(segments)} segment(s)")
+            print(f"  parsed {Path(path).name}:'{sheet.name}' -> {dept_name} ({dept_code}): {len(segments)} segment(s)")
     finally:
         wb.close()
         app.quit()
+    return departments
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("workbooks", nargs="+",
+                         help="One or more .xlsx paths — a single multi-sheet workbook (every sheet in it "
+                              "scanned for a '문항별 결과: ...' title), several separate per-department "
+                              "files, or a mix of both.")
+    parser.add_argument("--out", default=None, help="Output JSON path (default: data/segment_data.json)")
+    parser.add_argument("--sheets", nargs="*", default=None,
+                         help="Restrict to these specific sheet names, applied to EVERY workbook given "
+                              "(only meaningful with a single multi-sheet workbook). Default: scan all sheets.")
+    parser.add_argument("--expected-count", type=int, default=None,
+                         help="Total department count you expect across all files (전사 포함), e.g. 44 — "
+                              "prints a clear mismatch warning naming which survey-data departments never "
+                              "got a matching sheet, instead of leaving you to notice a silent gap yourself.")
+    args = parser.parse_args()
+
+    dept_code_by_name = load_dept_code_lookup()
+    if not dept_code_by_name:
+        print("warning: no data/survey_data.json or dummy_survey_data.json found — "
+              "every sheet will be skipped since dept_name can't be matched to a dept_code. "
+              "Run the main loader (or generate_dummy_data.py) first.", file=sys.stderr)
+
+    departments = {}
+    for path in args.workbooks:
+        departments.update(parse_one_workbook(path, dept_code_by_name, args.sheets))
 
     out_path = Path(args.out) if args.out else DATA_DIR / "segment_data.json"
     payload = {"departments": departments}
@@ -286,7 +316,19 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
-    print(f"wrote {out_path} ({len(payload['departments'])}개 부서 누적)")
+    total = len(payload["departments"])
+    print(f"wrote {out_path} ({total}개 부서 누적)")
+
+    if args.expected_count is not None:
+        if total == args.expected_count:
+            print(f"OK: {total}/{args.expected_count}개 부서 모두 파싱됨")
+        else:
+            missing_names = sorted(set(dept_code_by_name) - {d["dept_name"] for d in payload["departments"].values()})
+            print(f"WARNING: {total}/{args.expected_count}개만 파싱됨 (누락 {args.expected_count - total}개)",
+                  file=sys.stderr)
+            if missing_names:
+                print(f"  survey 데이터엔 있지만 이번 실행에서 못 찾은 부서명: {', '.join(missing_names)}",
+                      file=sys.stderr)
 
 
 if __name__ == "__main__":
