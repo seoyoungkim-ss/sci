@@ -4366,6 +4366,17 @@ document.getElementById("file-survey").addEventListener("change", (e) => {
     // self-diagnose or report back precisely.
     const records = Array.isArray(json) ? json : (Array.isArray(json?.records) ? json.records : null);
     if (records === null) {
+      // A very easy mix-up: this app has TWO different JSON file types
+      // (survey data here vs. the org_map_<round>.json loaded from
+      // "이전 회차 불러오기" inside 관리자 모드), and org_map files
+      // happen to also be a plain JSON object, so a wrong-picker
+      // mistake lands here as a generic type mismatch unless called
+      // out specifically like this.
+      if (json && typeof json === "object" && !Array.isArray(json) && json.map && typeof json.map === "object") {
+        statusEl.textContent = `"${file.name}"은 부서 데이터 파일이 아니라 조직도(org_map) 파일로 보입니다 — 이건 관리자 모드의 "이전 회차 불러오기"에 넣어주세요. 여기 "부서 데이터 불러오기"에는 dept_code가 있는 부서 배열 JSON을 불러와야 합니다.`;
+        statusEl.className = "load-status error";
+        return;
+      }
       const gotType = Array.isArray(json) ? "array" : typeof json;
       const topKeys = json && typeof json === "object" ? Object.keys(json).slice(0, 15) : [];
       statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 — JSON 최상위가 부서 배열([...]) 이거나 { "records": [...] } 형태여야 합니다 (현재: ${gotType}${topKeys.length ? `, 키: ${topKeys.join(", ")}` : ""})`;
