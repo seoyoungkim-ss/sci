@@ -22,14 +22,14 @@ and get an explicit OK/mismatch summary at the end instead of having to
 notice a silent gap yourself.
 
 TIP if this errors with "읽기 전용이거나 손상되었거나 암호화되어
-있습니다" even though a file opens fine by double-clicking: open that
-file normally in Excel first and leave it open, THEN run this script
-— it attaches to the already-open, already-decrypted copy instead of
-asking Excel to open a fresh one via COM automation, which some DRM
-plugins refuse to decrypt through (see xlwings_utils.open_or_attach()).
-With 44 separate files this only helps one at a time (you can't keep
-44 windows open at once), but it at least confirms whether COM-driven
-Open is the actual blocker before you process the rest.
+있습니다" on some files even though they open fine by double-clicking:
+each open is automatically retried a couple of times with the "읽기
+전용으로 여시겠습니까?" prompt suppressed at the COM layer (this alone
+should make the run fully automated across all 44 files — no manual
+pre-opening needed). If a particular file still won't open directly,
+it falls back to attaching to an already-open copy of that same file,
+in case you opened it manually as a one-off workaround — see
+xlwings_utils.open_or_attach() for the full explanation.
 
 WHY THIS IS SEPARATE FROM xlwings_loader.py: that script reads ONE
 sheet with a FIXED column layout (every column letter hardcoded in

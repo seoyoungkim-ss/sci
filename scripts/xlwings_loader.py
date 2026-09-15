@@ -4,12 +4,14 @@ files, since they only read the raw zip/XML — xlwings drives the real
 Excel application via COM/AppleScript instead).
 
 TIP if this errors with "읽기 전용이거나 손상되었거나 암호화되어
-있습니다" even though the file opens fine by double-clicking: open the
-file normally in Excel first (double-click) and leave it open, THEN
-run this script — it attaches to that already-open, already-decrypted
-copy instead of asking Excel to open a fresh one via COM automation,
-which some DRM plugins refuse to decrypt through. See
-xlwings_utils.open_or_attach() for details.
+있습니다" even though the file opens fine by double-clicking: this is
+automatically retried a couple of times with the "읽기 전용으로
+여시겠습니까?" prompt suppressed at the COM layer (the usual cause of
+an automated open hanging/failing on a file that opens fine
+interactively), and falls back to attaching to an already-open copy of
+the same file if you happen to have opened it manually. See
+xlwings_utils.open_or_attach() for the full explanation and what to
+try if it still fails.
 
 Usage:
     python scripts/xlwings_loader.py "C:\\path\\to\\survey.xlsx" [--out out.json]
