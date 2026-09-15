@@ -7,19 +7,23 @@ in the shape the dashboard's "세그먼트 데이터 불러오기" file picker e
       "segments": { "<세그먼트명>": { "categories": [...],
       "areas": {...}, "items": {...} } } } } }
 
-Usage (a single multi-sheet workbook — every sheet scanned):
+Usage (44개 조직 파일이 전부 한 폴더에 있는 경우 — 전사 포함):
+    python scripts/segment_loader.py "C:\\segments" --expected-count 44
+
+Usage (한 워크북 안에 여러 시트로 되어 있는 경우 — 시트 전체 스캔):
     python scripts/segment_loader.py "C:\\path\\to\\survey.xlsx" [--out out.json] [--sheets "1팀" "2팀"]
 
-Usage (44개 조직 각각 별도 파일인 경우 — 전사 포함, glob으로 한 번에):
-    python scripts/segment_loader.py C:\\segments\\*.xlsx --expected-count 44
-
-Multiple paths are always accepted (nargs="+") and every sheet in
-every one of them is scanned independently — this covers "한 워크북에
-여러 시트" and "조직마다 별도 파일" both, since it wasn't clear from the
-request alone which shape the real export takes. --expected-count lets
-you pass the total department count you expect (전사 최상위조직 포함)
-and get an explicit OK/mismatch summary at the end instead of having to
-notice a silent gap yourself.
+Every given path can be a folder (expanded to every .xlsx directly
+inside it — add --recursive for subfolders too) or an individual file,
+and every sheet in every resulting file is scanned independently. This
+covers "한 워크북에 여러 시트" and "조직마다 별도 파일" both, since it
+wasn't clear from the request alone which shape the real export takes
+— and folders are resolved by this script itself rather than relying
+on shell glob expansion, since `*.xlsx` on the command line doesn't
+expand into filenames on Windows cmd/PowerShell the way it does in a
+Unix shell. --expected-count lets you pass the total department count
+you expect (전사 최상위조직 포함) and get an explicit OK/mismatch
+summary at the end instead of having to notice a silent gap yourself.
 
 TIP if this errors with "읽기 전용이거나 손상되었거나 암호화되어
 있습니다" on some files even though they open fine by double-clicking:
@@ -287,16 +291,57 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None):
     return departments
 
 
+def resolve_workbook_paths(given_paths, recursive=False):
+    """Expands each given path into a flat, deduplicated list of .xlsx
+    files: a file path is kept as-is, a directory is expanded to every
+    .xlsx directly inside it (or under it too, with --recursive). This
+    exists so "해당 폴더 내 모든 파일" works by just pointing at the
+    folder — Windows cmd/PowerShell doesn't expand a `*.xlsx` glob on
+    the command line the way a Unix shell does, so relying on shell
+    globbing (as the earlier --expected-count example suggested) isn't
+    reliable there. Excel's own "~$file.xlsx" lock files (created while
+    a file is open, even by this same script's own visible window) are
+    always skipped since they aren't real workbooks."""
+    resolved = []
+    seen = set()
+    for given in given_paths:
+        p = Path(given)
+        if p.is_dir():
+            pattern = "**/*.xlsx" if recursive else "*.xlsx"
+            found = sorted(p.glob(pattern))
+            if not found:
+                print(f"  warning: '{given}' 폴더 안에 .xlsx 파일이 없습니다"
+                      + (" (하위 폴더까지 찾으려면 --recursive)" if not recursive else ""),
+                      file=sys.stderr)
+            for f in found:
+                if f.name.startswith("~$"):
+                    continue  # Excel's own lock file for a currently-open workbook
+                resolved.append(f)
+        else:
+            resolved.append(p)
+
+    deduped = []
+    for f in resolved:
+        key = str(f.resolve()) if f.exists() else str(f)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(f)
+    return deduped
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("workbooks", nargs="+",
-                         help="One or more .xlsx paths — a single multi-sheet workbook (every sheet in it "
-                              "scanned for a '문항별 결과: ...' title), several separate per-department "
-                              "files, or a mix of both.")
+                         help="One or more .xlsx paths AND/OR folder paths. A folder is expanded to every "
+                              ".xlsx directly inside it (see --recursive for subfolders too); a file path is "
+                              "used as-is. Covers a single multi-sheet workbook, several separate "
+                              "per-department files, or 'just point me at the folder with all 44 in it'.")
     parser.add_argument("--out", default=None, help="Output JSON path (default: data/segment_data.json)")
     parser.add_argument("--sheets", nargs="*", default=None,
                          help="Restrict to these specific sheet names, applied to EVERY workbook given "
                               "(only meaningful with a single multi-sheet workbook). Default: scan all sheets.")
+    parser.add_argument("--recursive", action="store_true",
+                         help="When a given path is a folder, also scan its subfolders for .xlsx files.")
     parser.add_argument("--expected-count", type=int, default=None,
                          help="Total department count you expect across all files (전사 포함), e.g. 44 — "
                               "prints a clear mismatch warning naming which survey-data departments never "
@@ -309,8 +354,11 @@ def main():
               "every sheet will be skipped since dept_name can't be matched to a dept_code. "
               "Run the main loader (or generate_dummy_data.py) first.", file=sys.stderr)
 
+    workbook_paths = resolve_workbook_paths(args.workbooks, recursive=args.recursive)
+    print(f"{len(workbook_paths)}개 파일 처리 시작")
+
     departments = {}
-    for path in args.workbooks:
+    for path in workbook_paths:
         departments.update(parse_one_workbook(path, dept_code_by_name, args.sheets))
 
     out_path = Path(args.out) if args.out else DATA_DIR / "segment_data.json"

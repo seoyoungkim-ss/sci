@@ -113,10 +113,13 @@ dashboard/index.html        단일 HTML 대시보드 (조회모드 + 관리자�
    위치를 동적으로 매핑**합니다 (`segment_loader.py`의 `build_column_map()`).
 
    조직별 상세 데이터가 **한 워크북 안의 여러 시트**로 되어 있든 **조직마다 별도
-   파일**(예: 전사 포함 총 44개)로 되어 있든 둘 다 지원합니다 — 경로를 여러 개
-   넘기면 각 파일의 모든 시트를 독립적으로 스캔합니다:
+   파일**(예: 전사 포함 총 44개)로 되어 있든 둘 다 지원합니다. **폴더 경로를 그대로
+   넘기면** 그 안의 `.xlsx` 파일을 전부 찾아서(하위 폴더까지 보려면 `--recursive`)
+   각 파일의 모든 시트를 독립적으로 스캔합니다 — Windows cmd/PowerShell에서는
+   `*.xlsx` 같은 글롭이 자동으로 펼쳐지지 않아서, 폴더 지정은 셸의 글롭 전개가
+   아니라 스크립트 자체에서 처리합니다:
    ```
-   python scripts/segment_loader.py C:\segments\*.xlsx --expected-count 44
+   python scripts/segment_loader.py "C:\segments" --expected-count 44
    ```
    `--expected-count`를 주면 실행 끝에 "44/44개 파싱됨" 또는 몇 개가 비었고
    survey 데이터 기준 어떤 부서명이 매칭 안 됐는지까지 바로 알려줍니다.
