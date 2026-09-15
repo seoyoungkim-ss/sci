@@ -21,6 +21,16 @@ you pass the total department count you expect (전사 최상위조직 포함)
 and get an explicit OK/mismatch summary at the end instead of having to
 notice a silent gap yourself.
 
+TIP if this errors with "읽기 전용이거나 손상되었거나 암호화되어
+있습니다" even though a file opens fine by double-clicking: open that
+file normally in Excel first and leave it open, THEN run this script
+— it attaches to the already-open, already-decrypted copy instead of
+asking Excel to open a fresh one via COM automation, which some DRM
+plugins refuse to decrypt through (see xlwings_utils.open_or_attach()).
+With 44 separate files this only helps one at a time (you can't keep
+44 windows open at once), but it at least confirms whether COM-driven
+Open is the actual blocker before you process the rest.
+
 WHY THIS IS SEPARATE FROM xlwings_loader.py: that script reads ONE
 sheet with a FIXED column layout (every column letter hardcoded in
 config/schema.json) because every department is a ROW in that same
@@ -75,6 +85,7 @@ import sys
 from pathlib import Path
 
 from schema_utils import NO_DATA_MARKER
+from xlwings_utils import close_or_detach, open_or_attach
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 TITLE_RE = re.compile(r"문항별\s*결과\s*[:：]\s*(.+)")
@@ -233,33 +244,6 @@ def load_dept_code_lookup():
     return {}
 
 
-def open_workbook(path):
-    import xlwings as xw
-
-    # visible=True (not False): many corporate DRM/IRM plugins hook
-    # Excel's own UI-level file-open flow to decrypt a protected
-    # workbook, and fail — or refuse to decrypt at all — when Excel is
-    # launched invisibly via COM automation. That failure surfaces as
-    # Excel's own generic "읽기 전용이거나 손상되었거나 암호화되어
-    # 있습니다" dialog, which looks like real corruption/encryption but
-    # is really just the DRM plugin not getting a chance to run.
-    # Keeping the window visible lets the same plugin hook that works
-    # when you open the file normally do its job here too. See
-    # xlwings_loader.py's open_sheet() for the same fix + more detail.
-    app = xw.App(visible=True)
-    try:
-        wb = app.books.open(path)
-    except Exception as err:
-        app.quit()
-        raise RuntimeError(
-            f"Excel에서 '{path}' 파일을 열지 못했습니다: {err}\n"
-            "'읽기 전용이거나 암호화되어 있습니다' 같은 오류라면 보통 DRM 플러그인이 "
-            "정상 동작하는 계정으로 Excel에 로그인되어 있는지, 같은 파일을 Excel에서 "
-            "평소처럼(더블클릭으로) 열면 정상적으로 복호화되는지부터 확인해보세요."
-        ) from err
-    return app, wb
-
-
 def parse_one_workbook(path, dept_code_by_name, sheet_filter=None):
     """Opens a single .xlsx (one department's own file, or a multi-sheet
     workbook holding several departments — both are supported, since a
@@ -267,9 +251,14 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None):
     one file or 44 separate files) and returns {dept_code: {...}} for
     every sheet in it that looks like a 문항별 결과 sheet. Prints one
     line per sheet it either parses or explicitly skips, so a run over
-    many files/sheets is easy to audit against an expected total."""
+    many files/sheets is easy to audit against an expected total.
+
+    Uses open_or_attach(): if this exact file is already open in some
+    Excel window (e.g. you double-clicked it, confirmed to work when a
+    fresh COM-driven open hits a DRM decrypt error), it attaches to
+    that instead of asking Excel to open a new copy."""
     departments = {}
-    app, wb = open_workbook(path)
+    app, wb, owns_app = open_or_attach(path)
     try:
         targets = [wb.sheets[s] for s in sheet_filter] if sheet_filter else list(wb.sheets)
         for sheet in targets:
@@ -294,8 +283,7 @@ def parse_one_workbook(path, dept_code_by_name, sheet_filter=None):
             }
             print(f"  parsed {Path(path).name}:'{sheet.name}' -> {dept_name} ({dept_code}): {len(segments)} segment(s)")
     finally:
-        wb.close()
-        app.quit()
+        close_or_detach(app, wb, owns_app)
     return departments
 
 

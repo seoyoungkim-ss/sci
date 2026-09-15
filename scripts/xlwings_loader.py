@@ -1,8 +1,15 @@
 """Load the department health-survey sheet out of a DRM-protected Excel
 workbook using xlwings (openpyxl/pandas.read_excel cannot open DRM
 files, since they only read the raw zip/XML — xlwings drives the real
-Excel application via COM/AppleScript instead, so the file must be
-opened normally with Excel + the DRM plugin on this machine first).
+Excel application via COM/AppleScript instead).
+
+TIP if this errors with "읽기 전용이거나 손상되었거나 암호화되어
+있습니다" even though the file opens fine by double-clicking: open the
+file normally in Excel first (double-click) and leave it open, THEN
+run this script — it attaches to that already-open, already-decrypted
+copy instead of asking Excel to open a fresh one via COM automation,
+which some DRM plugins refuse to decrypt through. See
+xlwings_utils.open_or_attach() for details.
 
 Usage:
     python scripts/xlwings_loader.py "C:\\path\\to\\survey.xlsx" [--out out.json]
@@ -22,43 +29,25 @@ import sys
 from pathlib import Path
 
 from schema_utils import NO_DATA_MARKER, col_to_index, iter_item_defs, load_schema
+from xlwings_utils import close_or_detach, open_or_attach
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
 def open_sheet(workbook_path, sheet_index):
-    import xlwings as xw
-
-    # visible=True (not False): many corporate DRM/IRM plugins (마크애니,
-    # Fasoo 등) hook Excel's own UI-level file-open flow to decrypt a
-    # protected workbook, and fail — or refuse to decrypt at all — when
-    # Excel is launched invisibly via COM automation. That failure
-    # surfaces as Excel's own generic "읽기 전용이거나 손상되었거나
-    # 암호화되어 있습니다" dialog, which looks like a real corruption/
-    # encryption error but is really just the DRM plugin not getting a
-    # chance to run. Keeping the window visible lets the same plugin
-    # hook that works when you open the file normally do its job here.
-    app = xw.App(visible=True)
+    # See xlwings_utils.open_or_attach()'s docstring: if the file
+    # opens fine by double-clicking but a script gets Excel's generic
+    # "읽기 전용이거나 손상되었거나 암호화되어 있습니다" error, this
+    # attaches to an already-open copy instead of asking Excel to open
+    # a fresh one via COM (which some DRM plugins can't decrypt through).
+    app, wb, owns_app = open_or_attach(workbook_path)
     try:
-        try:
-            wb = app.books.open(workbook_path)
-        except Exception as err:
-            raise RuntimeError(
-                f"Excel에서 '{workbook_path}' 파일을 열지 못했습니다: {err}\n"
-                "DRM/암호화된 파일이 '읽기 전용이거나 암호화되어 있습니다' 같은 오류를 낸다면 "
-                "보통 DRM 플러그인이 정상 동작하는 계정으로 Excel에 로그인되어 있는지, "
-                "그리고 같은 파일을 Excel에서 평소처럼(더블클릭으로) 열면 정상적으로 "
-                "복호화되는지부터 확인해보세요."
-            ) from err
-        try:
-            sheet = wb.sheets[sheet_index]
-            used = sheet.used_range
-            values = used.value  # 2D list, row-major, 1-based offsets tracked separately
-            return values
-        finally:
-            wb.close()
+        sheet = wb.sheets[sheet_index]
+        used = sheet.used_range
+        values = used.value  # 2D list, row-major, 1-based offsets tracked separately
+        return values
     finally:
-        app.quit()
+        close_or_detach(app, wb, owns_app)
 
 
 def cell(row_values, col_letter, first_col_index):

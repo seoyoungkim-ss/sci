@@ -12,6 +12,7 @@ scripts/schema_utils.py     스키마 로딩 + 롤업(가중평균) 계산 로�
 scripts/generate_dummy_data.py   더미 데이터 생성 (5레벨 조직 예시)
 scripts/xlwings_loader.py   DRM 엑셀 4번째 시트 -> JSON 변환 (실 데이터용)
 scripts/segment_loader.py   DRM 엑셀의 부서별 "문항별 결과" 시트 -> 세그먼트 JSON 변환 (실 데이터용)
+scripts/xlwings_utils.py    위 두 로더가 공유하는 Excel 연결 헬퍼 (DRM 복호화 우회용 open_or_attach())
 scripts/generate_dummy_segment_data.py  더미 세그먼트 데이터 생성
 data/dummy_survey_data.json 생성된 더미 부서별 설문 데이터
 data/org_map_2026Q2.json    샘플 "이전 회차" 조직 계층 JSON
@@ -29,13 +30,18 @@ dashboard/index.html        단일 HTML 대시보드 (조회모드 + 관리자�
    - 전년비(L~N)가 `-`인 경우 문자열 `"-"` 그대로 유지되며, 대시보드에서
      "데이터 없음"으로 표시됩니다.
    - **"읽기 전용이거나 손상되었거나 암호화되어 있습니다" 오류가 뜨는 경우**:
-     사내 DRM/IRM 플러그인이 Excel을 자동화(COM)로 숨겨서 띄우면 정상적으로
-     복호화를 못 하는 경우가 흔합니다. `xlwings_loader.py`/`segment_loader.py`
-     둘 다 `xw.App(visible=True)`로 Excel 창을 실제로 띄운 상태로 실행하도록
-     되어 있는데(스크립트 실행 중 Excel 창이 잠깐 보였다 사라짐), 그래도 같은
-     오류가 나면 같은 파일을 평소처럼 더블클릭으로 열었을 때는 정상적으로
-     열리는지, 그 Excel이 DRM이 정상 동작하는 계정으로 로그인되어 있는지부터
-     확인해보세요.
+     더블클릭으로는 정상적으로 열리는 파일이 스크립트로는 이 오류를 내는 경우,
+     보통 사내 DRM/IRM 플러그인이 Excel의 "더블클릭으로 열기" 경로에만 걸려
+     있어서, 스크립트가 COM으로 새 Excel을 띄워 `Workbooks.Open`을 호출하면
+     플러그인이 복호화를 못 하는 것입니다. **해결책: 그 파일을 먼저 평소처럼
+     더블클릭으로 열어서 그대로 켜둔 채로 스크립트를 실행**하세요 —
+     `xlwings_loader.py`/`segment_loader.py` 둘 다 파일을 새로 열기 전에
+     이미 열려 있는 Excel 창 중에 같은 파일이 있는지부터 찾아서, 있으면 새로
+     열지 않고 그 창에 그대로 연결합니다(`scripts/xlwings_utils.py`의
+     `open_or_attach()`). 이미 열려 있는 창을 재사용할 뿐이므로 스크립트가
+     끝나도 그 창은 그대로 남겨두고 닫지 않습니다. 세그먼트 데이터처럼 파일이
+     여러 개(예: 44개)라면 한 번에 하나씩 열어서 돌리는 수밖에 없지만, 최소한
+     COM 자동화 자체가 막혀 있는 건지부터 이 방법으로 확인할 수 있습니다.
 
 2. **조직 계층 JSON**: 대시보드 관리자 모드에서 부서 노드를 드래그앤드롭이나
    ▲▼ 버튼으로 재배치한 뒤 "현재 회차로 저장" 버튼을 누르면
