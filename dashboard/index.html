@@ -441,6 +441,10 @@
   .exec-reason { font-size: 11.5px; color: var(--navy-700); }
   .exec-comment { background: var(--navy-100); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; color: var(--navy-800); margin-top: 10px; line-height: 1.6; }
   .exec-comment b { color: var(--coral-dark); }
+  .lv2-report-card { background: var(--navy-100); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
+  .lv2-report-name { font-size: 13px; font-weight: 800; color: var(--navy-900); margin-bottom: 4px; }
+  .lv2-report-lines { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--navy-800); line-height: 1.6; }
+  .lv2-report-lines li { margin-bottom: 2px; }
   .summary-footer { font-size: 11px; color: var(--muted); text-align: right; margin-top: 10px; }
   table.exec-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 4px; }
   table.exec-table th, table.exec-table td { padding: 7px 9px; border: 1px solid var(--border); text-align: left; }
@@ -3224,6 +3228,72 @@ function computeExecOrgStatus() {
 }
 const EXEC_ORG_STATUS_CLASS = { "우수": "good", "양호": "ok", "개선": "improve", "주의": "warn" };
 
+/** Lv2 조직마다 리더에게 그대로 보고할 수 있는 3줄 요약을 자동 생성합니다
+ * (요청받은 4가지 요구사항을 그대로 반영):
+ *  1줄 — 객관적 지표: 종합점수·3대영역(즐거운일/함께하는동료/자랑스러운
+ *        회사) 점수·응답률을 적고, 전년비가 5점 이상 움직인 영역이
+ *        있으면 그것도 함께 언급합니다.
+ *  2줄 — 신뢰도/편차: 응답률이 낮아 신뢰도 확보가 어려운 경우와 하위
+ *        조직 간 편차가 큰 경우(ANALYSIS.VARIANCE_LOW_STDDEV 이상 —
+ *        "조직 내부 편차 분석" 탭과 동일 기준)를 함께 표기하고, 둘 다
+ *        해당 없으면 "특이사항 없음"이라고 명시합니다(아예 생략하지
+ *        않음 — 3줄을 항상 유지).
+ *  3줄 — 맥락: 바로 위 상위조직 평균만 보지 않고, 이 조직 자신의 하위
+ *        조직 점수 분포(최저~최고)와 최상위(전사) 조직 평균 대비 차이를
+ *        함께 제시합니다.
+ * 문장은 과장·느낌표 없이 사실 위주로 간결하게 작성합니다. */
+function computeLv2ThreeLineReports() {
+  const rootCode = rootCodes()[0];
+  const rootRec = rootCode ? rollup(rootCode) : null;
+  const companyAvg = rootRec ? overallScore(rootRec) : null;
+
+  const lv2Codes = [...new Set(state.surveyData.filter(r => r.dept_level === 2).map(r => r.dept_code))];
+  return lv2Codes.map(code => {
+    const rec = rollup(code);
+    if (!rec) return null;
+    const score = overallScore(rec);
+
+    const areaText = AREA_DEFS.map(a => `${a.key} ${fmtScore(rec.area_scores?.[a.key])}`).join("·");
+    const bigMoves = AREA_DEFS
+      .map(a => ({ key: a.key, yoy: rec.area_yoy?.[a.key] }))
+      .filter(x => typeof x.yoy === "number" && Math.abs(x.yoy) >= 5);
+    const moveText = bigMoves.length
+      ? " " + bigMoves.map(x => `${x.key} 전년비 ${x.yoy >= 0 ? "+" : ""}${x.yoy.toFixed(1)}점 ${x.yoy >= 0 ? "상승" : "하락"}`).join(", ") + "."
+      : "";
+    const line1 = `종합점수 ${fmtScore(score)}점(${areaText}), 응답률 ${fmtPct(rec.response_rate)}.${moveText}`;
+
+    const kids = childrenByParent()[code] || [];
+    const childScores = kids.map(c => overallScore(rollup(c))).filter(v => v !== null);
+    const flags = [];
+    if (typeof rec.response_rate === "number" && rec.response_rate < ANALYSIS.RESPONSE_RATE_CAUTION) {
+      flags.push(`응답률 ${fmtPct(rec.response_rate)}로 결과 신뢰도 확보 어려움`);
+    }
+    let sd = null, lo = null, hi = null;
+    if (childScores.length >= 2) {
+      sd = stddev(childScores);
+      lo = Math.min(...childScores);
+      hi = Math.max(...childScores);
+      if (sd >= ANALYSIS.VARIANCE_LOW_STDDEV) {
+        flags.push(`하위 조직 간 점수 편차 큼(표준편차 ${sd.toFixed(1)}, ${lo.toFixed(1)}~${hi.toFixed(1)}점)`);
+      }
+    }
+    const line2 = flags.length ? flags.join("; ") + "." : "응답률·하위 조직 편차 특이사항 없음.";
+
+    const distText = childScores.length
+      ? `하위 ${kids.length}개 조직 점수 ${lo.toFixed(1)}~${hi.toFixed(1)}점 분포`
+      : `하위 조직 없음(자체 응답 기준)`;
+    let compareText = "전사 평균 데이터 없음";
+    if (companyAvg !== null && score !== null) {
+      const delta = score - companyAvg;
+      const dir = delta > 0.5 ? "높음" : delta < -0.5 ? "낮음" : "비슷";
+      compareText = `전사 평균(${companyAvg.toFixed(1)}점) 대비 ${delta >= 0 ? "+" : ""}${delta.toFixed(1)}점 ${dir}`;
+    }
+    const line3 = `${distText}. ${compareText}.`;
+
+    return { code, name: rec.dept_name, lines: [line1, line2, line3] };
+  }).filter(Boolean);
+}
+
 /** Every organization with a computeUnclassified() gap, ranked by a
  * simple combined "how much this matters" score: the unclassified
  * share of that org's own headcount (0-1) plus how far the estimated
@@ -4038,6 +4108,22 @@ function renderExecOrgStatusSection() {
   return `<div class="exec-section">${html}</div>`;
 }
 
+function renderExecLv2ReportSection() {
+  const reports = computeLv2ThreeLineReports();
+  let html = `<div class="exec-section-title">Lv2 조직별 3줄 리포트</div>
+    <div class="exec-section-desc">부서장 보고용 자동 요약 — ①객관적 지표(전년비 5점 이상 변동 포함) ②신뢰도·하위 조직 편차 ③하위 조직 분포 및 전사 평균 대비 비교 순으로 작성됩니다.</div>`;
+  if (!reports.length) {
+    html += `<div class="note-box">Lv2 조직 데이터가 없습니다.</div>`;
+  } else {
+    html += reports.map(r => `
+      <div class="lv2-report-card">
+        <div class="lv2-report-name">${escapeHtml(r.name)}</div>
+        <ol class="lv2-report-lines">${r.lines.map(l => `<li>${escapeHtml(l)}</li>`).join("")}</ol>
+      </div>`).join("");
+  }
+  return `<div class="exec-section">${html}</div>`;
+}
+
 /** Shared renderer for the 영역별 전년비 하락/상승 Top-N sections below
  * — same table shape either way, only the title/description/sort
  * direction/empty-state wording differ. */
@@ -4150,6 +4236,7 @@ function renderSummaryMode() {
     ${renderExecBenchmarkSection(rootData)}
     ${renderSummaryStatBar(rootData)}
     ${renderExecOrgStatusSection()}
+    ${renderExecLv2ReportSection()}
     ${renderExecAreaYoyTopSection("decline")}
     ${renderExecAreaYoyTopSection("improve")}
     ${renderExecLowReliabilitySection()}
