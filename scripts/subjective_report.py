@@ -46,8 +46,8 @@ import pandas as pd
 CONFIG = {
     "BASE_URL": "",          # 사내 vLLM OpenAI 호환 엔드포인트(예: "http://10.x.x.x:8000/v1"). 비워두면 LLM 요약 전부 건너뜀.
     "MODEL": "thinkingcap",
-    "API_KEY": "",           # 사내망에서는 인증 헤더 자체를 안 보내야 통과됨 — 비워두면 Authorization 헤더를 아예 안 보냄.
-                             # 값을 채우면 "Authorization: Bearer <값>" 헤더가 추가로 붙음.
+    "API_KEY": "EMPTY",      # curl 테스트로 확인된 값 — "Authorization: Bearer EMPTY" 헤더가 있어야 통과됨.
+                             # 비워두면("") Authorization 헤더 자체를 안 보냄(그 경우 403이 남).
 
     # 실제 파일명이 매번 달라서(예: "2026_1차_잘하는점_전체.xlsx") 고정 파일명 대신
     # EXCEL_DIR 안에서 파일명에 키워드가 들어간 .xlsx를 패턴으로 찾습니다
