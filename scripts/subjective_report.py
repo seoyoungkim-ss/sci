@@ -219,6 +219,35 @@ def raw_values_to_dataframe(values, column_names, header_rows=1):
     return assign_columns_by_position(df, column_names)
 
 
+def normalize_id_value(v):
+    """조직 코드/이름 등 "그룹핑에 쓰이는" 컬럼 값을 문자열로 통일합니다.
+    실제 엑셀에서는 같은 컬럼인데도 일부 행은 "08연구소"처럼 텍스트로,
+    일부 행은 셀 서식이 숫자라 8(또는 8.0)로 들어오는 경우가 흔합니다 —
+    이 상태로 그대로 두면 df.groupby(org_level)가 그룹 키를 정렬하려다
+    "'<' not supported between instances of 'float' and 'str'"로 죽습니다.
+    여기서 전부 문자열로 맞춰서 그 문제를 막습니다. 정수처럼 보이는
+    float(예: 8.0)는 ".0"을 떼고 "8"로 변환하지만, 원래 엑셀 셀이
+    "08"처럼 앞자리 0이 있었는데 숫자 서식이라 0이 사라진 경우까지는
+    복원할 수 없습니다(그 정보 손실은 엑셀 자체에서 이미 발생한 것) —
+    조직 코드 앞자리 0이 실제로 의미가 있다면 해당 컬럼을 엑셀에서
+    텍스트 서식으로 입력해 두는 쪽이 근본적인 해결책입니다."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v).strip()
+
+
+ID_COLUMNS_TO_NORMALIZE = ["사업부", "실", "팀", "진단부서명", "진단부서코드", "dup_key"]
+
+
+def normalize_id_columns(df):
+    for col in ID_COLUMNS_TO_NORMALIZE:
+        if col in df.columns:
+            df[col] = df[col].apply(normalize_id_value)
+    return df
+
+
 def load_strength_weakness(path, sheet_name=None):
     """(A)/(B) 공용 로더. status가 "10"으로 시작하는 유효 응답만 남깁니다."""
     values = read_sheet_raw_values(path, sheet_name)
@@ -226,7 +255,7 @@ def load_strength_weakness(path, sheet_name=None):
         return pd.DataFrame(columns=STRENGTH_WEAKNESS_COLUMNS)
     df = raw_values_to_dataframe(values, STRENGTH_WEAKNESS_COLUMNS)
     df = df[df["status"].astype(str).str.startswith("10", na=False)].reset_index(drop=True)
-    return df
+    return normalize_id_columns(df)
 
 
 def load_leader_comments(path, sheet_name=None):
@@ -236,7 +265,7 @@ def load_leader_comments(path, sheet_name=None):
         return pd.DataFrame(columns=LEADER_COLUMNS)
     df = raw_values_to_dataframe(values, LEADER_COLUMNS)
     df = df[df["응답상태"].astype(str).str.startswith("10", na=False)].reset_index(drop=True)
-    return df
+    return normalize_id_columns(df)
 
 
 # =============================================================
@@ -352,7 +381,7 @@ def aggregate_org_strength_weakness(df, org_level, prob_min, min_n, company_base
     "deviation_pp": {midcat: %p 편차}, "low_sample": bool,
     "midcat_dup_keys": {midcat: [dup_key,...]}}}."""
     result = {}
-    for org, g in df.groupby(org_level):
+    for org, g in df.groupby(org_level, sort=False):
         n = len(g)
         counts = {}
         dup_keys_by_mid = {}
@@ -392,7 +421,7 @@ def compute_ambivalent_issues(strength_pct, weakness_pct, top_n):
 def compute_ironic_rate(weakness_df, org_level, prob_min):
     """조직별 "개선 응답 중 H(반어·냉소) 분류가 1개 이상 있는 응답 비율"."""
     result = {}
-    for org, g in weakness_df.groupby(org_level):
+    for org, g in weakness_df.groupby(org_level, sort=False):
         n = len(g)
         if n == 0:
             result[org] = 0.0
@@ -410,7 +439,7 @@ def aggregate_leader_stats(leader_df, org_level, min_n):
     """조직별 부서장 의견 통계: 응답 수, 심각도 0~3 분포, 점검대상/즉시확인
     건수, 심각도>=1인 응답의 유형별 상위 3."""
     result = {}
-    for org, g in leader_df.groupby(org_level):
+    for org, g in leader_df.groupby(org_level, sort=False):
         n = len(g)
         severity = pd.to_numeric(g["심각도"], errors="coerce").fillna(0).astype(int)
         severity_dist = {lvl: int((severity == lvl).sum()) for lvl in (0, 1, 2, 3)}
