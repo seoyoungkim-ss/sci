@@ -551,7 +551,8 @@ def call_llm(system, user, cache, config=CONFIG):
         }
         resp = requests.post(f"{config['BASE_URL']}/chat/completions", headers=headers,
                               json=payload, timeout=config["LLM_TIMEOUT_SEC"])
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(f"{resp.status_code} {resp.reason} — 응답 본문: {resp.text[:500]}")
         text = strip_think_tags(resp.json()["choices"][0]["message"]["content"])
         if is_degenerate_llm_output(text):
             print(f"  warning: LLM 응답이 비정상(반복/깨짐)으로 판단되어 무시합니다: {text[:60]!r}",
