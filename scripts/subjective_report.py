@@ -549,8 +549,14 @@ def call_llm(system, user, cache, config=CONFIG):
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": config["LLM_TEMPERATURE"],
         }
+        # 사내망 내부 주소(예: 10.x.x.x)인데도 윈도우에 설정된 시스템 프록시를
+        # requests가 자동으로 타면서 그 프록시가 내부 IP 접근을 막아 403을
+        # 내는 경우가 있음(curl.exe는 기본적으로 시스템 프록시를 안 써서 이
+        # 문제가 안 생김). proxies={}를 명시해서 이 요청만큼은 프록시를 절대
+        # 타지 않도록 강제함.
         resp = requests.post(f"{config['BASE_URL']}/chat/completions", headers=headers,
-                              json=payload, timeout=config["LLM_TIMEOUT_SEC"])
+                              json=payload, timeout=config["LLM_TIMEOUT_SEC"],
+                              proxies={"http": None, "https": None})
         if not resp.ok:
             raise RuntimeError(f"{resp.status_code} {resp.reason} — 응답 본문: {resp.text[:500]}")
         text = strip_think_tags(resp.json()["choices"][0]["message"]["content"])
