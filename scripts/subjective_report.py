@@ -511,8 +511,23 @@ def prompt_hash(system, user, model):
     return h.hexdigest()
 
 
+def is_degenerate_llm_output(text):
+    """LLM 응답이 정상적인 문장이 아니라 같은 문자/토큰이 반복되는 깨진
+    출력(서버의 채팅 템플릿 미적용, 모델 로딩 오류 등으로 발생)인지 휴리스틱으로
+    판별합니다. API 호출 자체는 성공(예외 없음)해도 내용이 이런 경우가 있어서
+    별도로 걸러줘야 합니다."""
+    stripped = text.strip()
+    if len(stripped) < 5:
+        return False
+    if len(set(stripped)) / len(stripped) < 0.15:
+        return True
+    if re.search(r"(.)\1{9,}", stripped):
+        return True
+    return False
+
+
 def call_llm(system, user, cache, config=CONFIG):
-    """LLM 호출 — BASE_URL이 비어있거나 호출에 실패하면 빈 문자열을 반환합니다
+    """LLM 호출 — BASE_URL이 비어있거나 호출/생성에 실패하면 빈 문자열을 반환합니다
     (이 함수를 쓰는 쪽에서 반드시 "빈 문자열 = 요약 없음, 섹션 생략"으로
     처리해야 합니다). 프롬프트(system+user+model) 해시로 캐시해서 같은
     입력에 대해 재실행 시 다시 호출하지 않습니다."""
@@ -532,6 +547,10 @@ def call_llm(system, user, cache, config=CONFIG):
             temperature=config["LLM_TEMPERATURE"],
         )
         text = strip_think_tags(resp.choices[0].message.content)
+        if is_degenerate_llm_output(text):
+            print(f"  warning: LLM 응답이 비정상(반복/깨짐)으로 판단되어 무시합니다: {text[:60]!r}",
+                  file=sys.stderr)
+            text = ""
     except Exception as e:
         print(f"  warning: LLM 호출 실패 — {e}", file=sys.stderr)
         text = ""
