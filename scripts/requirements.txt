@@ -1,5 +1,5 @@
 xlwings
 pandas
-openai
+requests
 python-docx
 matplotlib

@@ -44,9 +44,10 @@ import pandas as pd
 # 0. CONFIG — 여기만 고치면 됩니다
 # =============================================================
 CONFIG = {
-    "BASE_URL": "",          # 사내 vLLM OpenAI 호환 엔드포인트. 비워두면 LLM 요약 전부 건너뜀.
+    "BASE_URL": "",          # 사내 vLLM OpenAI 호환 엔드포인트(예: "http://10.x.x.x:8000/v1"). 비워두면 LLM 요약 전부 건너뜀.
     "MODEL": "thinkingcap",
-    "API_KEY": "EMPTY",
+    "API_KEY": "",           # 사내망에서는 인증 헤더 자체를 안 보내야 통과됨 — 비워두면 Authorization 헤더를 아예 안 보냄.
+                             # 값을 채우면 "Authorization: Bearer <값>" 헤더가 추가로 붙음.
 
     # 실제 파일명이 매번 달라서(예: "2026_1차_잘하는점_전체.xlsx") 고정 파일명 대신
     # EXCEL_DIR 안에서 파일명에 키워드가 들어간 .xlsx를 패턴으로 찾습니다
@@ -539,14 +540,19 @@ def call_llm(system, user, cache, config=CONFIG):
         return cache[key]
 
     try:
-        from openai import OpenAI
-        client = OpenAI(base_url=config["BASE_URL"], api_key=config["API_KEY"], timeout=config["LLM_TIMEOUT_SEC"])
-        resp = client.chat.completions.create(
-            model=config["MODEL"],
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            temperature=config["LLM_TEMPERATURE"],
-        )
-        text = strip_think_tags(resp.choices[0].message.content)
+        import requests
+        headers = {"Content-Type": "application/json"}
+        if config["API_KEY"]:
+            headers["Authorization"] = f"Bearer {config['API_KEY']}"
+        payload = {
+            "model": config["MODEL"],
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": config["LLM_TEMPERATURE"],
+        }
+        resp = requests.post(f"{config['BASE_URL']}/chat/completions", headers=headers,
+                              json=payload, timeout=config["LLM_TIMEOUT_SEC"])
+        resp.raise_for_status()
+        text = strip_think_tags(resp.json()["choices"][0]["message"]["content"])
         if is_degenerate_llm_output(text):
             print(f"  warning: LLM 응답이 비정상(반복/깨짐)으로 판단되어 무시합니다: {text[:60]!r}",
                   file=sys.stderr)
