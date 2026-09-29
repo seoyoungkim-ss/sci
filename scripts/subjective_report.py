@@ -48,9 +48,15 @@ CONFIG = {
     "MODEL": "thinkingcap",
     "API_KEY": "EMPTY",
 
-    "EXCEL_STRENGTH": "잘하는점.xlsx",       # (A)
-    "EXCEL_WEAKNESS": "노력해야할점.xlsx",    # (B)
-    "EXCEL_LEADER": "부서장에게하고싶은말.xlsx",  # (C)
+    # 실제 파일명이 매번 달라서(예: "2026_1차_잘하는점_전체.xlsx") 고정 파일명 대신
+    # EXCEL_DIR 안에서 파일명에 키워드가 들어간 .xlsx를 패턴으로 찾습니다
+    # (아래 FILE_KEYWORDS 참고). 파일 경로를 직접 지정하고 싶으면 EXCEL_STRENGTH/
+    # WEAKNESS/LEADER에 실제 경로를 넣으세요 — 넣으면 그 경로를 그대로 쓰고
+    # 패턴 탐색은 하지 않습니다.
+    "EXCEL_DIR": ".",
+    "EXCEL_STRENGTH": None,   # (A) 잘하는점 — None이면 EXCEL_DIR에서 자동 탐색
+    "EXCEL_WEAKNESS": None,   # (B) 노력해야할점 — None이면 EXCEL_DIR에서 자동 탐색
+    "EXCEL_LEADER": None,     # (C) 부서장에게 하고싶은말 — None이면 EXCEL_DIR에서 자동 탐색
     "SHEET": None,  # None이면 각 워크북의 첫 번째 시트 사용
 
     "ORG_LEVEL": "사업부",  # "사업부" | "실" | "팀" — 보고서를 어느 조직 단위로 쪼갤지
@@ -67,6 +73,42 @@ CONFIG = {
     "LLM_TIMEOUT_SEC": 300,
     "LLM_TEMPERATURE": 0.2,
 }
+
+# EXCEL_STRENGTH/WEAKNESS/LEADER가 None일 때 EXCEL_DIR 안에서 파일명을 찾는 데
+# 쓰는 키워드 — 파일명 전체가 아니라 이 키워드가 "포함"되어 있는지만 봅니다
+# (예: "2026_1차_노력해야할점_전체.xlsx", "노력해야할점_08연구소.xlsx" 전부 매칭).
+FILE_KEYWORDS = {
+    "strength": "잘하는점",
+    "weakness": "노력해야할점",
+    "leader": "부서장하고싶은말",
+}
+
+
+def resolve_excel_path(explicit_path, keyword, excel_dir):
+    """explicit_path가 주어졌으면 그대로 쓰고, 아니면 excel_dir에서 파일명에
+    keyword가 들어간 .xlsx를 찾습니다. 실제 파일명이 CONFIG에 적어둔 이름과
+    달라도(부서/회차마다 파일명이 바뀌는 경우) 이 키워드 매칭 하나로 대응됩니다.
+    여러 개가 매칭되면 가장 최근에 수정된 파일을 쓰고 나머지는 경고로 알려주며,
+    하나도 없으면 찾을 수 있게 무엇을 찾고 있었는지 에러 메시지에 그대로 남깁니다."""
+    if explicit_path:
+        return Path(explicit_path)
+
+    candidates = [
+        p for p in Path(excel_dir).glob("*.xlsx")
+        if keyword in p.stem and not p.name.startswith("~$")  # ~$는 엑셀이 열려있을 때 생기는 잠금 파일
+    ]
+    if not candidates:
+        raise FileNotFoundError(
+            f"'{excel_dir}' 폴더에서 파일명에 '{keyword}'가 들어간 .xlsx를 찾지 못했습니다. "
+            f"CONFIG의 EXCEL_DIR을 확인하거나, 해당 항목에 실제 파일 경로를 직접 지정하세요."
+        )
+    if len(candidates) > 1:
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        print(f"  warning: '{keyword}' 키워드에 맞는 파일이 {len(candidates)}개 발견됨 — "
+              f"가장 최근에 수정된 '{candidates[0].name}'을 사용합니다 "
+              f"(나머지: {[p.name for p in candidates[1:]]})", file=sys.stderr)
+    return candidates[0]
+
 
 # 색상 (Word 보고서 공통)
 COLOR_NAVY = "0B1F3A"
@@ -930,10 +972,14 @@ def main(config=CONFIG):
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    print("엑셀 로딩 중...")
-    strength_df = load_strength_weakness(config["EXCEL_STRENGTH"], config["SHEET"])
-    weakness_df = load_strength_weakness(config["EXCEL_WEAKNESS"], config["SHEET"])
-    leader_df = load_leader_comments(config["EXCEL_LEADER"], config["SHEET"])
+    strength_path = resolve_excel_path(config["EXCEL_STRENGTH"], FILE_KEYWORDS["strength"], config["EXCEL_DIR"])
+    weakness_path = resolve_excel_path(config["EXCEL_WEAKNESS"], FILE_KEYWORDS["weakness"], config["EXCEL_DIR"])
+    leader_path = resolve_excel_path(config["EXCEL_LEADER"], FILE_KEYWORDS["leader"], config["EXCEL_DIR"])
+    print(f"엑셀 로딩 중... (강점: {strength_path.name}, 개선: {weakness_path.name}, "
+          f"부서장: {leader_path.name})")
+    strength_df = load_strength_weakness(strength_path, config["SHEET"])
+    weakness_df = load_strength_weakness(weakness_path, config["SHEET"])
+    leader_df = load_leader_comments(leader_path, config["SHEET"])
     print(f"  잘하는점 {len(strength_df)}건, 노력해야할점 {len(weakness_df)}건, "
           f"부서장의견 {len(leader_df)}건 (유효 응답)")
 
