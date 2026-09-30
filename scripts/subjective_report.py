@@ -822,16 +822,25 @@ def build_overview_facts_text(org, stats, objective=None):
     if objective:
         area_scores = objective.get("area_scores") or {}
         area_yoy = objective.get("area_yoy") or {}
-        if area_scores:
+        # area_scores/area_yoy/response_rate/custom_questions는 데이터가 없는
+        # 항목을 None이 아니라 NO_DATA_MARKER("-") 문자열로 담아두는 경우가
+        # 있음(schema_utils.py 참고) — 그대로 f"{v:.1f}"에 넣으면
+        # "ValueError: Unknown format code 'f' for object of type 'str'"로
+        # 죽으므로, 실제 숫자인 항목만 골라서 씁니다.
+        valid_scores = {k: v for k, v in area_scores.items() if isinstance(v, (int, float))}
+        if valid_scores:
             lines.append("객관식 설문 영역별 점수: " + ", ".join(
-                f"{k} {v:.1f}점" + (f"(전년비 {area_yoy[k]:+.1f})" if area_yoy.get(k) is not None else "")
-                for k, v in area_scores.items()))
-        if objective.get("response_rate") is not None:
-            lines.append(f"객관식 설문 참여율: {objective['response_rate']*100:.1f}%")
+                f"{k} {v:.1f}점" + (f"(전년비 {area_yoy[k]:+.1f})"
+                                    if isinstance(area_yoy.get(k), (int, float)) else "")
+                for k, v in valid_scores.items()))
+        response_rate = objective.get("response_rate")
+        if isinstance(response_rate, (int, float)):
+            lines.append(f"객관식 설문 참여율: {response_rate*100:.1f}%")
         custom_questions = objective.get("custom_questions") or {}
-        if custom_questions:
+        valid_custom = {q: v for q, v in custom_questions.items() if isinstance(v, (int, float))}
+        if valid_custom:
             lines.append("특화문항(조직 맞춤 객관식) 점수: " + ", ".join(
-                f"{q} {v:.1f}점" for q, v in custom_questions.items()))
+                f"{q} {v:.1f}점" for q, v in valid_custom.items()))
     return "\n".join(lines)
 
 
