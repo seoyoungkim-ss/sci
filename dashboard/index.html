@@ -368,6 +368,19 @@
   .qual-raw-list ul { margin: 6px 0 0; padding-left: 18px; max-height: 260px; overflow-y: auto; }
   .qual-raw-list li { margin-bottom: 6px; line-height: 1.5; }
   .qual-dept { font-weight: 700; color: var(--navy-800); margin-right: 4px; }
+  .ai-analysis-card { background: var(--gold-light); border: 1px solid var(--gold); border-radius: var(--radius);
+    padding: 16px 18px; margin-bottom: 18px; }
+  .ai-kpi-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 12px; }
+  .ai-kpi { background: var(--card); border-radius: 8px; padding: 8px 12px; min-width: 110px; }
+  .ai-kpi-label { font-size: 11.5px; color: var(--muted); }
+  .ai-kpi-value { font-size: 15px; font-weight: 700; color: var(--text); }
+  .ai-narrative { font-style: italic; font-size: 13.5px; line-height: 1.7; color: var(--text); margin: 8px 0; }
+  .ai-top-cols { display: flex; flex-wrap: wrap; gap: 24px; margin: 10px 0; }
+  .ai-top-cols ul { margin: 4px 0 0; padding-left: 18px; }
+  .ai-top-cols li { margin-bottom: 4px; font-size: 13px; }
+  .ai-top-title { font-weight: 700; font-size: 13px; color: var(--navy-800); }
+  .ai-pct { color: var(--muted); font-size: 12px; }
+  .ai-note { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
   .chart-copy-status { font-size: 11.5px; color: var(--positive); font-weight: 600; }
   .svg-chart-wrap svg { width: 100%; height: auto; display: block; }
   .scatter-caption { font-size: 12px; color: var(--muted); margin-top: 8px; }
@@ -486,6 +499,9 @@
     <button class="btn ghost" id="btn-load-qualitative">주관식 데이터 불러오기</button>
     <input type="file" id="file-qualitative" accept=".json,application/json">
     <span id="qualitative-load-status" class="load-status"></span>
+    <button class="btn ghost" id="btn-load-subjective-analysis">주관식 AI 분석 불러오기</button>
+    <input type="file" id="file-subjective-analysis" accept=".json,application/json">
+    <span id="subjective-analysis-load-status" class="load-status"></span>
   </div>
 </header>
 
@@ -2566,6 +2582,13 @@ const state = {
   // 불러옵니다. 키워드 추출은 저장 시점이 아니라 화면에 표시할 때마다
   // extractKeywords()로 그때그때 계산합니다.
   qualitativeData: [],
+  // scripts/subjective_report.py가 만든 LLM 기반 주관식 분석 결과(강점/개선
+  // Top5, 종합 분석 5문장 서술형, 부서장 의견 요약 등), dept_code로 키가
+  // 맞춰져 있어 이미 로드된 객관식 지표(state.recordsByCode)와 그대로
+  // 조인해서 보여줄 수 있음. "주관식 AI 분석 불러오기"로 subjective_
+  // analysis.json을 불러오면 채워짐. qualitativeData(원문 키워드 빈도)와는
+  // 별개의, 한 단계 더 가공된 분석 결과.
+  subjectiveAnalysis: {},
   expandedTreeNodes: new Set(),
   dragCode: null,
   report: {
@@ -4325,17 +4348,56 @@ function collectSelfAndDescendantCodes(code) {
   return codes;
 }
 
+/** scripts/subjective_report.py가 만든 LLM 분석 결과(state.subjectiveAnalysis,
+ * dept_code로 키가 맞춰짐)를 이 부서의 이미 로드되어 있는 객관식 점수(data.
+ * area_scores/area_yoy — rollup()이 반환한 것과 동일한 그 부서 레코드)와
+ * 한 카드에 같이 보여줍니다. "주관식 AI 분석 불러오기"로 아직 아무것도
+ * 안 불러왔으면 조용히 빈 문자열(카드 자체를 안 그림). */
+function renderSubjectiveAnalysisCard(data) {
+  const entry = state.subjectiveAnalysis[data.dept_code];
+  if (!entry) return "";
+
+  const kpiCells = AREA_DEFS.map(a => {
+    const score = data.area_scores?.[a.key];
+    if (score === null || score === undefined || score === NO_DATA_MARKER) return "";
+    const yoy = data.area_yoy?.[a.key];
+    return `<div class="ai-kpi"><div class="ai-kpi-label">${escapeHtml(a.key)}</div>
+      <div class="ai-kpi-value">${fmtScore(score)}${yoyInlineHtml(yoy)}</div></div>`;
+  }).join("");
+
+  const topList = (top) => (top && top.length)
+    ? `<ul>${top.slice(0, 5).map(([mid, pct]) => `<li>${escapeHtml(mid)} <span class="ai-pct">${(pct * 100).toFixed(1)}%</span></li>`).join("")}</ul>`
+    : `<p class="note-box">표본 부족 또는 데이터 없음</p>`;
+
+  return `
+    <div class="ai-analysis-card">
+      <div class="section-title">AI 종합 분석 — 주관식 + 객관식 통합 (${escapeHtml(entry.org_name || data.dept_name)})</div>
+      ${kpiCells ? `<div class="ai-kpi-row">${kpiCells}</div>` : ""}
+      ${entry.narrative_summary
+        ? `<div class="ai-narrative">${escapeHtml(entry.narrative_summary)}</div>`
+        : `<p class="note-box">종합 분석 없음 (LLM 미사용 또는 생성 실패)</p>`}
+      <div class="ai-top-cols">
+        <div><div class="ai-top-title">잘하는 점 Top5</div>${topList(entry.strength_top)}</div>
+        <div><div class="ai-top-title">노력해야 할 점 Top5</div>${topList(entry.weakness_top)}</div>
+      </div>
+      ${entry.leader_summary ? `<div class="ai-top-title">부서장 의견 요약</div><div class="ai-narrative">${escapeHtml(entry.leader_summary)}</div>` : ""}
+      <p class="ai-note">※ AI 요약은 초안이므로 원문 확인이 필요합니다.</p>
+    </div>`;
+}
+
 const QUALITATIVE_CATEGORY_ORDER = ["잘하고있는점", "노력해야할점", "부서장에게하고싶은말"];
 function renderQualitativeTab(container, data) {
+  const aiCard = renderSubjectiveAnalysisCard(data);
+
   if (!state.qualitativeData.length) {
-    container.innerHTML = `<div class="tab-panel-desc">주관식(자유 서술형) 응답에서 구분별로 자주 등장한 단어를 보여줍니다.</div>
+    container.innerHTML = aiCard + `<div class="tab-panel-desc">주관식(자유 서술형) 응답에서 구분별로 자주 등장한 단어를 보여줍니다.</div>
       <div class="note-box">주관식 데이터가 없습니다. 상단 "주관식 데이터 불러오기"로 불러오면 여기에 표시됩니다.</div>`;
     return;
   }
   const scopeCodes = new Set(collectSelfAndDescendantCodes(state.selectedCode));
   const records = state.qualitativeData.filter(r => scopeCodes.has(r.dept_code));
   if (!records.length) {
-    container.innerHTML = `<div class="tab-panel-desc">주관식(자유 서술형) 응답에서 구분별로 자주 등장한 단어를 보여줍니다.</div>
+    container.innerHTML = aiCard + `<div class="tab-panel-desc">주관식(자유 서술형) 응답에서 구분별로 자주 등장한 단어를 보여줍니다.</div>
       <div class="note-box">"${escapeHtml(data.dept_name)}"(하위 조직 포함)에 해당하는 주관식 응답이 없습니다.</div>`;
     return;
   }
@@ -4349,7 +4411,7 @@ function renderQualitativeTab(container, data) {
     return ia - ib;
   });
 
-  let html = `<div class="tab-panel-desc">"${escapeHtml(data.dept_name)}"(하위 조직 포함, 응답 ${records.length}건) 주관식 응답에서 구분별로 자주 등장한 단어입니다. 형태소 분석기 없이 단순 빈도 기준으로 뽑은 참고용 결과이니, 실제 판단은 원문을 함께 확인하세요.</div>`;
+  let html = aiCard + `<div class="tab-panel-desc">"${escapeHtml(data.dept_name)}"(하위 조직 포함, 응답 ${records.length}건) 주관식 응답에서 구분별로 자주 등장한 단어입니다. 형태소 분석기 없이 단순 빈도 기준으로 뽑은 참고용 결과이니, 실제 판단은 원문을 함께 확인하세요.</div>`;
 
   for (const cat of categories) {
     const catRecords = records.filter(r => (r.category || "(구분 없음)") === cat);
@@ -5130,6 +5192,28 @@ document.getElementById("file-qualitative").addEventListener("change", (e) => {
     // 구조라 매번 불러온 파일이 최신 전체본입니다).
     state.qualitativeData = records;
     statusEl.textContent = `"${file.name}" 불러옴 (${records.length}건 응답)`;
+    statusEl.className = "load-status ok";
+    if (state.mode === "view") renderTabContent();
+  });
+  e.target.value = "";
+});
+
+document.getElementById("btn-load-subjective-analysis").addEventListener("click", () => document.getElementById("file-subjective-analysis").click());
+document.getElementById("file-subjective-analysis").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("subjective-analysis-load-status");
+  readJsonFile(file, (json) => {
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 — 최상위가 { "dept_code": {...}, ... } 형태여야 합니다`;
+      statusEl.className = "load-status error";
+      return;
+    }
+    // scripts/subjective_report.py의 write_subjective_analysis_json() 출력을
+    // 그대로 교체 저장 — dept_code로 이미 키가 맞춰져 있어 state.recordsByCode
+    // 와 바로 조인됩니다.
+    state.subjectiveAnalysis = json;
+    statusEl.textContent = `"${file.name}" 불러옴 (${Object.keys(json).length}개 조직)`;
     statusEl.className = "load-status ok";
     if (state.mode === "view") renderTabContent();
   });

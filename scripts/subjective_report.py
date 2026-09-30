@@ -9,9 +9,15 @@
 "진단부서" 컬럼 하나로 통일합니다(unify_dept_column).
 
 처리: xlwings로 읽기 -> pandas로 위치 기반 컬럼명 부여/집계 -> 로컬 vLLM으로
-조직×카테고리 테마/부서장 의견/조직별 총평 요약 -> python-docx + matplotlib로
-조직별 임원보고용 .docx 생성 + 순수 HTML(.html)로 객관식 설문 지표(CONFIG의
-OBJECTIVE_DATA_PATH)와 통합한 버전도 함께 생성.
+조직×카테고리 테마/부서장 의견/조직별 총평·종합 분석 요약 -> python-docx +
+matplotlib로 조직별 임원보고용 .docx 생성. 조직명은 segment_loader.py/
+qualitative_loader.py와 동일한 load_dept_code_lookup()으로 dept_code에
+매칭되고, 그 dept_code로 객관식 설문 지표(data/survey_data.json 등)를
+찾아 총평/종합 분석 LLM 프롬프트에 근거로 포함시킵니다. 최종적으로 조직별
+분석 결과 전체를 dept_code로 키를 맞춰 data/subjective_analysis.json 하나에
+모아 쓰는데, 이 파일을 dashboard/index.html의 "주관식분석" 탭에서 불러오면
+이미 로드되어 있는 객관식 지표와 한 화면에서 통합해 볼 수 있습니다(조직별로
+따로 파일을 만들지 않음 — 대시보드가 그 역할을 대신함).
 
 실행:
     python scripts/subjective_report.py
@@ -45,6 +51,10 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+
+from segment_loader import load_dept_code_lookup
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # =============================================================
 # 0. CONFIG — 여기만 고치면 됩니다
@@ -84,11 +94,19 @@ CONFIG = {
     "LLM_TIMEOUT_SEC": 300,
     "LLM_TEMPERATURE": 0.2,
 
-    # 객관식 설문 집계 데이터(예: data/dummy_survey_data.json — dept_code/dept_name/
-    # area_scores/area_yoy/response_rate 등을 담은 JSON 배열) 경로. 지정하면 조직별
-    # 리포트에 객관식 지표가 같이 표시되고 총평 LLM 프롬프트에도 근거로 들어감.
-    # None이면 객관식 지표 섹션 없이 주관식 분석만 나옴.
+    # 객관식 설문 집계 데이터(dept_code/dept_name/area_scores/area_yoy/response_rate
+    # 등을 담은 JSON 배열) 경로. None이면 data/survey_data.json -> data/
+    # dummy_survey_data.json 순으로 자동 탐색(대시보드가 쓰는 것과 동일 파일).
+    # dept_code 기준으로 매칭되므로(load_dept_code_lookup 참고) 조직명 표기가
+    # 살짝 달라도 안전하게 연결됩니다. 지정하면 총평/종합 분석 LLM 프롬프트에
+    # 객관식 점수가 근거로 같이 들어감.
     "OBJECTIVE_DATA_PATH": None,
+
+    # 대시보드 통합용 결과 JSON 경로. None이면 data/subjective_analysis.json에
+    # 씀 — dashboard/index.html의 "주관식분석" 탭 "주관식 AI 분석 불러오기"
+    # 버튼으로 이 파일을 불러오면, 조직별 종합 분석/Top5/부서장 의견 요약이
+    # 이미 로드되어 있는 객관식 지표와 한 화면에 같이 나타납니다.
+    "DASHBOARD_JSON_PATH": None,
 }
 
 # EXCEL_STRENGTH/WEAKNESS/LEADER가 None일 때 EXCEL_DIR 안에서 파일명을 찾는 데
@@ -127,20 +145,34 @@ def resolve_excel_path(explicit_path, keyword, excel_dir):
     return candidates[0]
 
 
-def load_objective_records(path):
+def load_objective_records(path=None):
     """객관식 설문 집계 JSON(부서별 area_scores/area_yoy/response_rate 등이 담긴
-    배열)을 읽어 {dept_name: record} 딕셔너리로 반환합니다. path가 없거나 파일이
-    없으면 빈 딕셔너리를 반환하고 경고만 출력합니다 — 이 경우 리포트에서 객관식
-    지표 섹션만 생략되고 주관식 분석은 정상적으로 진행됩니다."""
-    if not path:
-        return {}
-    p = Path(path)
-    if not p.exists():
-        print(f"  warning: 객관식 지표 파일을 찾을 수 없습니다 — {path} (해당 섹션 생략)", file=sys.stderr)
-        return {}
+    배열 — 대시보드가 쓰는 data/survey_data.json과 동일한 구조)을 읽어
+    {dept_code: record} 딕셔너리로 반환합니다. path를 안 주면 대시보드/
+    segment_loader.py/qualitative_loader.py와 동일하게 data/survey_data.json을
+    먼저 찾고 없으면 data/dummy_survey_data.json으로 대체합니다(load_dept_code_
+    lookup()과 같은 탐색 순서 — 주관식 조직명 -> dept_code 매칭도 이 파일 기준
+    이므로, 객관식 지표도 같은 파일에서 가져와야 서로 어긋나지 않습니다).
+    파일이 없으면 빈 딕셔너리를 반환하고 경고만 출력합니다 — 이 경우 객관식
+    지표 없이 주관식 분석만 정상적으로 진행됩니다."""
+    if path:
+        p = Path(path)
+        if not p.exists():
+            print(f"  warning: 객관식 지표 파일을 찾을 수 없습니다 — {path} (해당 섹션 생략)", file=sys.stderr)
+            return {}
+    else:
+        p = None
+        for candidate in (DATA_DIR / "survey_data.json", DATA_DIR / "dummy_survey_data.json"):
+            if candidate.exists():
+                p = candidate
+                break
+        if p is None:
+            print(f"  warning: 객관식 지표 파일을 찾을 수 없습니다 — "
+                  f"{DATA_DIR / 'survey_data.json'} (해당 섹션 생략)", file=sys.stderr)
+            return {}
     with open(p, "r", encoding="utf-8") as f:
         records = json.load(f)
-    return {r["dept_name"]: r for r in records if r.get("dept_name")}
+    return {r["dept_code"]: r for r in records if r.get("dept_code")}
 
 
 # 색상 (Word 보고서 공통)
@@ -720,9 +752,9 @@ def summarize_org_overview(org, facts_text, config=CONFIG, cache=None):
 
 def summarize_integrated_narrative(org, facts_text, config=CONFIG, cache=None):
     """주관식 분석 결과와 객관식 설문 점수를 하나로 합쳐, 개조식/목록이 아니라
-    자연스럽게 읽히는 5문장짜리 서술형 문단으로 요약합니다. build_org_report()/
-    build_org_report_html() 최상단에 "종합 분석"으로 노출되는, 이 조직에 대한
-    가장 압축된 한 장 요약입니다."""
+    자연스럽게 읽히는 5문장짜리 서술형 문단으로 요약합니다. build_org_report()
+    (.docx) 최상단과 write_subjective_analysis_json() 출력(대시보드 연동)
+    양쪽에 "종합 분석"으로 노출되는, 이 조직에 대한 가장 압축된 한 장 요약입니다."""
     user = (
         f"조직: {org}\n아래는 이 조직의 주관식 응답 집계와(있는 경우) 객관식 설문 점수를 합친 "
         f"확정 수치입니다 — 여기 없는 숫자나 사실은 만들지 말고 그대로만 활용하세요:\n{facts_text}\n\n"
@@ -1064,210 +1096,41 @@ def build_company_report(all_stats, out_path):
 
 
 # =============================================================
-# 7. HTML 리포트 — 객관식 지표와 통합해서 한 화면에서 보기 위한 버전.
-#    .docx와 별개로 생성되며(기존 .docx 산출물은 그대로 유지), 순수 HTML+CSS로만
-#    그려서 폰트/matplotlib 환경에 의존하지 않습니다.
+# 7. 대시보드 통합 JSON — 조직마다 .html을 따로 만드는 대신, dept_code로
+#    키를 맞춘 JSON 하나만 만들어서 dashboard/index.html의 "주관식분석" 탭이
+#    직접 불러와 객관식 지표(이미 대시보드에 로드돼 있음)와 한 화면에서
+#    보여줄 수 있게 합니다. 파일 수를 줄이고, dept_code 기준 매칭이라
+#    이름 표기 차이로 인한 연동 실패도 없습니다.
 # =============================================================
-def _esc(s):
-    """HTML 텍스트 삽입 시 이스케이프."""
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;"))
-
-
-HTML_STYLE = f"""
-body {{ font-family: "Malgun Gothic", "맑은 고딕", "Noto Sans KR", sans-serif;
-        background: #F4F5F7; color: #1A1A2E; margin: 0; padding: 0; }}
-.wrap {{ max-width: 900px; margin: 0 auto; padding: 24px 16px 60px; }}
-.card {{ background: #fff; border-radius: 10px; padding: 20px 24px; margin-bottom: 18px;
-         box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
-h1 {{ color: #{COLOR_NAVY}; font-size: 22px; margin: 4px 0; }}
-h2 {{ color: #{COLOR_NAVY}; font-size: 16px; border-left: 4px solid #{COLOR_GOLD};
-      padding-left: 8px; margin: 0 0 12px; }}
-.subtitle {{ color: #808080; font-size: 13px; margin-bottom: 20px; }}
-.kpi-row {{ display: flex; flex-wrap: wrap; gap: 12px; }}
-.kpi {{ flex: 1 1 140px; background: #{COLOR_NAVY}; color: #fff; border-radius: 8px;
-        padding: 12px 14px; }}
-.kpi .label {{ font-size: 12px; opacity: 0.8; }}
-.kpi .value {{ font-size: 20px; font-weight: bold; color: #{COLOR_GOLD}; }}
-.kpi .yoy-up {{ color: #7CD992; font-size: 12px; }}
-.kpi .yoy-down {{ color: #FF8A80; font-size: 12px; }}
-.bar-row {{ display: flex; align-items: center; margin: 8px 0; font-size: 13px; }}
-.bar-label {{ flex: 0 0 130px; color: #333; }}
-.bar-track {{ flex: 1; background: #EEE; border-radius: 4px; height: 14px; overflow: hidden; margin: 0 10px; }}
-.bar-fill {{ height: 100%; border-radius: 4px; }}
-.bar-value {{ flex: 0 0 130px; text-align: right; color: #555; }}
-.dev-pos {{ color: #C0392B; }}
-.dev-neg {{ color: #2471A3; }}
-.theme-line {{ font-size: 13px; color: #444; margin: 6px 0; padding-left: 10px;
-               border-left: 2px solid #DDD; }}
-.muted {{ color: #999; font-size: 13px; }}
-table.sev {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
-table.sev th, table.sev td {{ border: 1px solid #E0E0E0; padding: 6px 10px; text-align: center; font-size: 13px; }}
-table.sev th {{ background: #{COLOR_NAVY}; color: #fff; }}
-.overview-text {{ font-size: 14px; line-height: 1.7; white-space: pre-line; }}
-.narrative-card {{ background: #FFF9EE; border: 1px solid #{COLOR_GOLD}; }}
-.narrative-text {{ font-style: italic; color: #333; white-space: normal; }}
-footer.notes {{ font-size: 11px; color: #999; margin-top: 20px; line-height: 1.6; }}
-a {{ color: #{COLOR_NAVY}; }}
-.company-list a {{ display: block; padding: 8px 0; border-bottom: 1px solid #EEE; text-decoration: none; }}
-"""
-
-
-def _kpi_card_html(label, value_text, yoy=None):
-    yoy_html = ""
-    if yoy is not None:
-        cls = "yoy-up" if yoy >= 0 else "yoy-down"
-        yoy_html = f'<div class="{cls}">전년비 {yoy:+.1f}</div>'
-    return f'<div class="kpi"><div class="label">{_esc(label)}</div>' \
-           f'<div class="value">{_esc(value_text)}</div>{yoy_html}</div>'
-
-
-def _objective_section_html(objective):
-    if not objective:
-        return '<div class="card"><h2>객관식 설문 지표</h2><p class="muted">연동된 객관식 지표 없음</p></div>'
-    area_scores = objective.get("area_scores") or {}
-    area_yoy = objective.get("area_yoy") or {}
-    kpis = [_kpi_card_html("참여율", f"{objective['response_rate']*100:.1f}%")] \
-        if objective.get("response_rate") is not None else []
-    for k, v in area_scores.items():
-        kpis.append(_kpi_card_html(k, f"{v:.1f}점", area_yoy.get(k)))
-    leader_line = f'<p class="muted">리더: {_esc(objective["leader_name"])}</p>' \
-        if objective.get("leader_name") else ""
-    return (f'<div class="card"><h2>객관식 설문 지표</h2>'
-            f'<div class="kpi-row">{"".join(kpis)}</div>{leader_line}</div>')
-
-
-def _bar_section_html(title, top_list, deviation_pp, color_hex, theme_summaries, kind):
-    if not top_list:
-        return ""
-    rows = []
-    for mid, pct in top_list:
-        dev = deviation_pp.get(mid, 0.0)
-        dev_cls = "dev-pos" if dev >= 0 else "dev-neg"
-        rows.append(
-            f'<div class="bar-row"><div class="bar-label">{_esc(mid)}</div>'
-            f'<div class="bar-track"><div class="bar-fill" style="width:{max(0,min(100,pct*100)):.1f}%;'
-            f'background:#{color_hex}"></div></div>'
-            f'<div class="bar-value">{pct*100:.1f}% <span class="{dev_cls}">({dev:+.1f}%p)</span></div></div>'
-        )
-        theme = theme_summaries.get((kind, mid), "")
-        if theme:
-            for line in theme.splitlines():
-                if line.strip():
-                    rows.append(f'<div class="theme-line">{_esc(line.strip())}</div>')
-    return f'<div class="card"><h2>{_esc(title)}</h2>{"".join(rows)}</div>'
-
-
-def build_org_report_html(org, stats, out_path, config=CONFIG):
-    """조직별 HTML 리포트 — 객관식 지표(있으면) + 주관식 분석을 한 화면에 통합."""
-    objective = stats.get("objective")
-    parts = [f"<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
-             f"<title>{_esc(org)} 조직문화 진단 리포트</title>"
-             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
-             f"<style>{HTML_STYLE}</style></head><body><div class='wrap'>"]
-    parts.append(f"<h1>{_esc(org)}</h1><div class='subtitle'>주관식 응답 분석 · 임원보고용</div>")
-
-    parts.append(_objective_section_html(objective))
-
-    if stats.get("narrative_summary"):
-        parts.append(f'<div class="card narrative-card"><h2>종합 분석</h2>'
-                      f'<div class="overview-text narrative-text">{_esc(stats["narrative_summary"].strip())}'
-                      f'</div></div>')
-
-    if stats.get("overview_summary"):
-        parts.append(f'<div class="card"><h2>총평</h2>'
-                      f'<div class="overview-text">{_esc(stats["overview_summary"])}</div></div>')
-
-    if stats["strength"]["low_sample"]:
-        parts.append(f'<div class="card"><h2>잘하는 점 Top{config["TOP_K"]}</h2>'
-                      f'<p class="muted">표본 부족(익명성 기준)</p></div>')
-    else:
-        parts.append(_bar_section_html(f"잘하는 점 Top{config['TOP_K']}", stats["strength_top"],
-                                        stats["strength"]["deviation_pp"], COLOR_NAVY,
-                                        stats["theme_summaries"], "strength"))
-
-    if stats["weakness"]["low_sample"]:
-        parts.append(f'<div class="card"><h2>노력해야 할 점 Top{config["TOP_K"]}</h2>'
-                      f'<p class="muted">표본 부족(익명성 기준)</p></div>')
-    else:
-        parts.append(_bar_section_html(f"노력해야 할 점 Top{config['TOP_K']}", stats["weakness_top"],
-                                        stats["weakness"]["deviation_pp"], COLOR_CORAL,
-                                        stats["theme_summaries"], "weakness"))
-
-    if stats["ambivalent"]:
-        parts.append('<div class="card"><h2>양가 이슈</h2>' +
-                      "".join(f'<p class="theme-line">{_esc(mid)} — 강점과 개선 양쪽 상위권에 동시 언급</p>'
-                              for mid in stats["ambivalent"]) + '</div>')
-
-    leader = stats.get("leader")
-    leader_html = ['<div class="card"><h2>부서장에게 하고 싶은 말</h2>']
-    if not leader or leader.get("low_sample", True):
-        leader_html.append('<p class="muted">표본 부족(익명성 기준)</p>')
-    else:
-        leader_html.append('<table class="sev"><tr>' +
-                            "".join(f"<th>심각도 {lvl}</th>" for lvl in (0, 1, 2, 3)) + "</tr><tr>" +
-                            "".join(f'<td>{leader["severity_dist"].get(lvl, 0)}</td>' for lvl in (0, 1, 2, 3)) +
-                            "</tr></table>")
-        if leader.get("top_types"):
-            leader_html.append('<p class="muted">주요 유형: ' +
-                                _esc(", ".join(f"{t}({c}건)" for t, c in leader["top_types"])) + '</p>')
-        if stats.get("leader_summary"):
-            leader_html.append(f'<div class="overview-text">{_esc(stats["leader_summary"])}</div>')
-    leader_html.append("</div>")
-    parts.append("".join(leader_html))
-
-    parts.append(
-        '<footer class="notes">'
-        '※ 비율은 유효 응답 대비 언급 비율이며, 한 응답이 여러 카테고리로 중복 집계될 수 있습니다.<br>'
-        '※ AI 요약은 초안이므로 원문 확인이 필요합니다.<br>'
-        '※ 개별 원문과 즉시확인 건은 본 보고서에 포함하지 않았습니다.'
-        '</footer>'
-    )
-    parts.append("</div></body></html>")
-
+def write_subjective_analysis_json(all_stats, out_path):
+    """dept_code로 매칭된 조직만 담아 {dept_code: {...}} JSON을 씁니다.
+    dept_code가 없는 조직(진단부서 표기가 survey_data.json의 dept_name과
+    안 맞는 경우)은 build_all_org_stats()에서 이미 경고를 출력했으므로
+    여기서는 조용히 건너뜁니다 — 그런 조직도 .docx 리포트에는 여전히 포함됩니다."""
+    payload = {}
+    skipped = []
+    for org, stats in all_stats.items():
+        dept_code = stats.get("dept_code")
+        if not dept_code:
+            skipped.append(org)
+            continue
+        payload[dept_code] = {
+            "org_name": org,
+            "narrative_summary": stats.get("narrative_summary") or "",
+            "overview_summary": stats.get("overview_summary") or "",
+            "strength_top": stats.get("strength_top") or [],
+            "weakness_top": stats.get("weakness_top") or [],
+            "ambivalent": stats.get("ambivalent") or [],
+            "ironic_rate": stats.get("ironic_rate", 0.0),
+            "leader": stats.get("leader"),
+            "leader_summary": stats.get("leader_summary") or "",
+            "theme_summaries": {f"{kind}::{mid}": text for (kind, mid), text in stats.get("theme_summaries", {}).items()},
+        }
+    if skipped:
+        print(f"  warning: dept_code 매칭 실패로 대시보드 연동 JSON에서 제외된 조직: {skipped}", file=sys.stderr)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write("".join(parts))
-    return out_path
-
-
-def build_company_report_html(all_stats, out_path):
-    """전사_종합.html — 조직별 요약 표 + 각 조직 리포트로 가는 링크."""
-    rows = []
-    for org, stats in all_stats.items():
-        leader = stats.get("leader") or {"n": 0, "immediate_n": 0}
-        total_n = stats["strength"]["n"] + stats["weakness"]["n"] + leader.get("n", 0)
-        top1_strength = stats["strength_top"][0][0] if stats["strength_top"] else "-"
-        top1_weakness = stats["weakness_top"][0][0] if stats["weakness_top"] else "-"
-        rows.append(
-            f'<tr><td><a href="{_esc(safe_filename(org))}.html">{_esc(org)}</a></td>'
-            f'<td>{total_n}</td><td>{leader.get("immediate_n", 0)}</td>'
-            f'<td>{stats["ironic_rate"]*100:.1f}%</td><td>{_esc(top1_strength)}</td>'
-            f'<td>{_esc(top1_weakness)}</td></tr>'
-        )
-    table_html = (
-        '<table class="sev"><tr><th>조직</th><th>응답수</th><th>즉시확인</th>'
-        '<th>반어·냉소 비율</th><th>강점 1위</th><th>개선 1위</th></tr>' + "".join(rows) + "</table>"
-    )
-    narrative_cards = []
-    for org, stats in all_stats.items():
-        narrative = stats.get("narrative_summary") or "(종합 분석 없음 — LLM 미사용 또는 생성 실패)"
-        narrative_cards.append(
-            f'<div class="card narrative-card"><h2>{_esc(org)}</h2>'
-            f'<div class="overview-text narrative-text">{_esc(narrative.strip())}</div></div>'
-        )
-    html = (
-        f"<!doctype html><html lang='ko'><head><meta charset='utf-8'><title>전사 종합 리포트</title>"
-        f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<style>{HTML_STYLE}</style></head><body><div class='wrap'>"
-        f"<h1>전사 종합</h1><div class='subtitle'>주관식 응답 분석 · 임원보고용</div>"
-        f'<div class="card"><h2>조직별 요약</h2>{table_html}</div>'
-        f'<h2 style="margin:20px 4px 8px">조직별 종합 분석</h2>{"".join(narrative_cards)}'
-        f'</div></body></html>'
-    )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
     return out_path
 
 
@@ -1310,6 +1173,7 @@ def build_all_org_stats(strength_df, weakness_df, leader_df, config=CONFIG):
     top_k = config["TOP_K"]
     top_k_amb = config["TOP_K_AMBIVALENT"]
     objective_records = load_objective_records(config.get("OBJECTIVE_DATA_PATH"))
+    dept_code_by_name = load_dept_code_lookup()
 
     company_strength_baseline = compute_company_baseline(strength_df, org_level, prob_min)
     company_weakness_baseline = compute_company_baseline(weakness_df, org_level, prob_min)
@@ -1355,13 +1219,18 @@ def build_all_org_stats(strength_df, weakness_df, leader_df, config=CONFIG):
             eligible = g[(sev.isin([1, 2])) & (g["즉시확인"].astype(str).str.strip().str.upper() != "O")]
             leader_summary = summarize_leader_opinions(org, eligible["원문"].dropna().tolist(), config, cache)
 
-        objective = objective_records.get(org)
+        dept_code = dept_code_by_name.get(org)
+        if dept_code is None:
+            print(f"  warning: '{org}'에 매칭되는 dept_code를 찾지 못했습니다 "
+                  f"(data/survey_data.json의 dept_name과 표기가 다를 수 있음) — "
+                  f"객관식 지표 연동 및 대시보드 통합 없이 진행합니다.", file=sys.stderr)
+        objective = objective_records.get(dept_code) if dept_code else None
         stats = {
             "strength": s_stats, "weakness": w_stats, "leader": l_stats,
             "strength_top": strength_top, "weakness_top": weakness_top,
             "ambivalent": ambivalent, "ironic_rate": ironic_rate.get(org, 0.0),
             "theme_summaries": theme_summaries, "leader_summary": leader_summary,
-            "objective": objective,
+            "objective": objective, "dept_code": dept_code,
         }
         facts_text = build_overview_facts_text(org, stats, objective)
         stats["overview_summary"] = summarize_org_overview(org, facts_text, config, cache)
@@ -1403,20 +1272,18 @@ def main(config=CONFIG):
         out_path = out_dir / f"{safe_filename(org)}.docx"
         build_org_report(org, stats, tmp_dir, out_path, config)
         print(f"  {out_path}")
-        html_path = out_dir / f"{safe_filename(org)}.html"
-        build_org_report_html(org, stats, html_path, config)
-        print(f"  {html_path}")
 
     company_path = out_dir / "전사_종합.docx"
     build_company_report(all_stats, company_path)
     print(f"  {company_path}")
-    company_html_path = out_dir / "전사_종합.html"
-    build_company_report_html(all_stats, company_html_path)
-    print(f"  {company_html_path}")
 
     write_results_json(all_stats, out_dir / "results.json")
     if len(leader_df):
         write_hr_only_immediate_csv(leader_df, out_dir / "HR_only_즉시확인.csv")
+
+    dashboard_json_path = Path(config.get("DASHBOARD_JSON_PATH") or (DATA_DIR / "subjective_analysis.json"))
+    write_subjective_analysis_json(all_stats, dashboard_json_path)
+    print(f"  {dashboard_json_path}  <- 대시보드 '주관식분석' 탭에서 이 파일을 불러오세요")
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
     print("완료.")
