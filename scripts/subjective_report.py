@@ -1,8 +1,12 @@
 """사내 조직문화 진단 "주관식 응답" 분석 파이프라인.
 
 입력 (엑셀 3종, DRM 보호 — 반드시 xlwings로 엶):
-  (A) 잘하는점, (B) 노력해야할점 — 컬럼 레이아웃 동일 (30컬럼, A~AD)
+  (A) 잘하는점 (30컬럼, A~AD, 소분류/중분류/대분류/확률이 4개 슬롯 _1.._4)
+  (B) 노력해야할점 (16컬럼, A~P, 소분류/중분류/대분류/확률이 각 1개 컬럼이고
+      콤마로 여러 값 표시, 부서 컬럼이 맨 뒤에 있음) — (A)와 컬럼 레이아웃이 다름
   (C) 부서장에게 하고싶은말 (21컬럼, A~U)
+모두 "진단부서"(또는 "진단부서명")로 부서를 식별하며, 로딩 시 이 둘을
+"진단부서" 컬럼 하나로 통일합니다(unify_dept_column).
 
 처리: xlwings로 읽기 -> pandas로 위치 기반 컬럼명 부여/집계 -> 로컬 vLLM으로
 조직×카테고리 테마/부서장 의견/조직별 총평 요약 -> python-docx + matplotlib로
@@ -16,12 +20,13 @@ OBJECTIVE_DATA_PATH)와 통합한 버전도 함께 생성.
 관련 섹션만 생략되고 나머지(집계표/차트/보고서 뼈대)는 정상적으로 생성됩니다.
 
 테스트: xlwings 로딩 없이 전체 파이프라인을 검증하려면 main()에 넘기는
-config와 함께 load_strength_weakness()/load_leader_comments()를 원하는
-DataFrame을 돌려주는 함수로 바꿔치기하면 됩니다 (아래 두 함수는 모듈
+config와 함께 load_strength_weakness()/load_weakness()/load_leader_comments()를
+원하는 DataFrame을 돌려주는 함수로 바꿔치기하면 됩니다 (아래 세 함수는 모듈
 전역 이름으로 참조되므로 monkeypatch가 그대로 적용됩니다):
 
     import subjective_report as sr
-    sr.load_strength_weakness = lambda path, sheet_name=None: my_fake_df
+    sr.load_strength_weakness = lambda path, sheet_name=None: my_fake_strength_df
+    sr.load_weakness = lambda path, sheet_name=None: my_fake_weakness_df
     sr.load_leader_comments = lambda path, sheet_name=None: my_fake_leader_df
     sr.main({**sr.CONFIG, "OUT_DIR": "test_output", "BASE_URL": ""})
 
@@ -61,7 +66,11 @@ CONFIG = {
     "EXCEL_LEADER": None,     # (C) 부서장에게 하고싶은말 — None이면 EXCEL_DIR에서 자동 탐색
     "SHEET": None,  # None이면 각 워크북의 첫 번째 시트 사용
 
-    "ORG_LEVEL": "사업부",  # "사업부" | "실" | "팀" — 보고서를 어느 조직 단위로 쪼갤지
+    "ORG_LEVEL": "진단부서",  # "사업부" | "실" | "팀" | "진단부서" — 보고서를 어느 조직 단위로
+                              # 쪼갤지. 3개 엑셀 파일 모두 로딩 시 "진단부서" 컬럼으로 통일되므로
+                              # (unify_dept_column 참고) 기본값은 "진단부서". 객관식 지표
+                              # (OBJECTIVE_DATA_PATH)와 연동하려면 그 파일의 dept_name과 값이
+                              # 정확히 일치해야 합니다.
     "MIN_N": 5,             # 조직 단위 응답 수가 이 미만이면 익명성 보호를 위해 해당 섹션 비표시
     "MIN_CAT_N": 3,         # 조직×카테고리 응답 수가 이 미만이면 그 카테고리는 LLM 요약 생략
     "PROB_MIN": 0.3,        # 이 확률 미만인 분류는 무시
@@ -156,8 +165,9 @@ IRONIC_MAJOR = "H"      # 순위에는 포함하되 별도 KPI 비율 산출
 # =============================================================
 # 1. 컬럼 위치 -> 이름 매핑 (열 순서만 여기서 바꾸면 전체에 반영됩니다)
 # =============================================================
-# (A)/(B) 잘하는점·노력해야할점: A~AD, 30개 컬럼
-STRENGTH_WEAKNESS_COLUMNS = [
+# (A) 잘하는점: A~AD, 30개 컬럼, 분류가 소분류_1..4/중분류_1..4/확률_1..4
+# 4개 슬롯으로 나뉘어 있음(슬롯 내부는 콤마로 추가 분리 가능).
+STRENGTH_COLUMNS = [
     "사업부", "실", "팀", "진단부서명", "raw_text", "text_norm", "status", "char_len",
     "dup_key", "dup_count",
     "소분류코드_1", "소분류코드_2", "소분류코드_3", "소분류코드_4",
@@ -165,6 +175,16 @@ STRENGTH_WEAKNESS_COLUMNS = [
     "중분류_1", "중분류_2", "중분류_3", "중분류_4",
     "대분류_1", "대분류_2", "대분류_3", "대분류_4",
     "확률_1", "확률_2", "확률_3", "확률_4",
+]
+
+# (B) 노력해야할점: A~P, 16개 컬럼 — 잘하는점과 컬럼 구성이 다름(슬롯 없이
+# 소분류코드/소분류/중분류/대분류/확률이 각 1개 컬럼이고, 한 응답이 여러
+# 카테고리에 해당하면 그 컬럼 안에서 콤마로 나열됨). 부서 컬럼도 맨 앞이
+# 아니라 맨 뒤(사업부/실/팀/진단부서)에 있고, "진단부서" 컬럼이 별도로 있음.
+WEAKNESS_COLUMNS = [
+    "num", "raw_text", "text_norm", "status", "char_len", "dup_key", "dup_count",
+    "소분류코드", "소분류", "중분류", "대분류", "확률",
+    "사업부", "실", "팀", "진단부서",
 ]
 
 # (C) 부서장에게 하고싶은말: A~U, 21개 컬럼
@@ -262,7 +282,7 @@ def normalize_id_value(v):
     return str(v).strip()
 
 
-ID_COLUMNS_TO_NORMALIZE = ["사업부", "실", "팀", "진단부서명", "진단부서코드", "dup_key"]
+ID_COLUMNS_TO_NORMALIZE = ["사업부", "실", "팀", "진단부서명", "진단부서", "진단부서코드", "dup_key"]
 
 
 def normalize_id_columns(df):
@@ -272,14 +292,37 @@ def normalize_id_columns(df):
     return df
 
 
-def load_strength_weakness(path, sheet_name=None):
-    """(A)/(B) 공용 로더. status가 "10"으로 시작하는 유효 응답만 남깁니다."""
+def unify_dept_column(df):
+    """레이아웃마다 부서 컬럼명이 다릅니다 — 노력해야할점(신규)은 "진단부서",
+    잘하는점/부서장의견(기존)은 "진단부서명". ORG_LEVEL="진단부서"를 세 파일
+    공통 집계 기준으로 쓸 수 있도록, "진단부서"가 없으면 "진단부서명"에서
+    복사해 항상 "진단부서" 컬럼이 존재하도록 통일합니다."""
+    if "진단부서" not in df.columns and "진단부서명" in df.columns:
+        df["진단부서"] = df["진단부서명"]
+    return df
+
+
+def _load_sw_common(path, sheet_name, column_names):
     values = read_sheet_raw_values(path, sheet_name)
     if not values:
-        return pd.DataFrame(columns=STRENGTH_WEAKNESS_COLUMNS)
-    df = raw_values_to_dataframe(values, STRENGTH_WEAKNESS_COLUMNS)
+        return pd.DataFrame(columns=column_names)
+    df = raw_values_to_dataframe(values, column_names)
     df = df[df["status"].astype(str).str.startswith("10", na=False)].reset_index(drop=True)
+    df = unify_dept_column(df)
     return normalize_id_columns(df)
+
+
+def load_strength_weakness(path, sheet_name=None):
+    """(A) 잘하는점 로더 — 30컬럼 4-슬롯 레이아웃. status가 "10"으로 시작하는
+    유효 응답만 남깁니다."""
+    return _load_sw_common(path, sheet_name, STRENGTH_COLUMNS)
+
+
+def load_weakness(path, sheet_name=None):
+    """(B) 노력해야할점 로더 — 16컬럼 단일 컬럼(콤마 구분) 레이아웃. 잘하는점과
+    컬럼 구성이 달라서 별도 함수로 분리했습니다. status가 "10"으로 시작하는
+    유효 응답만 남깁니다."""
+    return _load_sw_common(path, sheet_name, WEAKNESS_COLUMNS)
 
 
 def load_leader_comments(path, sheet_name=None):
@@ -289,6 +332,7 @@ def load_leader_comments(path, sheet_name=None):
         return pd.DataFrame(columns=LEADER_COLUMNS)
     df = raw_values_to_dataframe(values, LEADER_COLUMNS)
     df = df[df["응답상태"].astype(str).str.startswith("10", na=False)].reset_index(drop=True)
+    df = unify_dept_column(df)
     return normalize_id_columns(df)
 
 
@@ -342,16 +386,28 @@ def major_of(midcat):
 
 
 def extract_categories_from_row(row, prob_min):
-    """응답 한 행에서 {중분류: 확률} 딕셔너리를 만듭니다 (소분류_n/중분류_n/
-    확률_n 4개 슬롯 + 슬롯 내부 콤마 분리까지 전부 처리). 같은 중분류가
-    여러 슬롯/콤마 항목에 걸쳐 중복되면 최댓값만 남기고, PROB_MIN 미만은
-    제외합니다."""
+    """응답 한 행에서 {중분류: 확률} 딕셔너리를 만듭니다. 두 레이아웃을 모두
+    지원합니다: (1) 소분류_n/중분류_n/확률_n 4개 슬롯 레이아웃(잘하는점, 슬롯
+    내부 콤마 분리까지 처리), (2) 중분류/확률이 각각 1개 컬럼이고 콤마로 여러
+    값이 들어있는 단일 컬럼 레이아웃(노력해야할점). 같은 중분류가 여러
+    슬롯/콤마 항목에 걸쳐 중복되면 최댓값만 남기고, PROB_MIN 미만은 제외합니다."""
     best = {}
-    for n in (1, 2, 3, 4):
-        mids = split_cell_list(row.get(f"중분류_{n}"))
-        if not mids:
-            continue
-        probs = parse_prob_list(row.get(f"확률_{n}"), len(mids))
+    if "중분류_1" in row:
+        for n in (1, 2, 3, 4):
+            mids = split_cell_list(row.get(f"중분류_{n}"))
+            if not mids:
+                continue
+            probs = parse_prob_list(row.get(f"확률_{n}"), len(mids))
+            for mid, prob in zip(mids, probs):
+                if prob is None or prob < prob_min:
+                    continue
+                if mid not in best or prob > best[mid]:
+                    best[mid] = prob
+        return best
+
+    mids = split_cell_list(row.get("중분류"))
+    if mids:
+        probs = parse_prob_list(row.get("확률"), len(mids))
         for mid, prob in zip(mids, probs):
             if prob is None or prob < prob_min:
                 continue
@@ -1192,7 +1248,7 @@ def write_hr_only_immediate_csv(leader_df, out_path):
     """즉시확인=O 행만 별도 CSV로 — 원문은 이 파일에만 남기고 보고서(.docx)에는
     절대 넣지 않습니다."""
     mask = leader_df["즉시확인"].astype(str).str.strip().str.upper() == "O"
-    cols = ["사업부", "실", "팀", "심각도", "즉시확인점수", "원문"]
+    cols = ["사업부", "실", "팀", "진단부서", "심각도", "즉시확인점수", "원문"]
     sub = leader_df.loc[mask, cols]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sub.to_csv(out_path, index=False, encoding="utf-8-sig")
@@ -1285,7 +1341,7 @@ def main(config=CONFIG):
     print(f"엑셀 로딩 중... (강점: {strength_path.name}, 개선: {weakness_path.name}, "
           f"부서장: {leader_path.name})")
     strength_df = load_strength_weakness(strength_path, config["SHEET"])
-    weakness_df = load_strength_weakness(weakness_path, config["SHEET"])
+    weakness_df = load_weakness(weakness_path, config["SHEET"])
     leader_df = load_leader_comments(leader_path, config["SHEET"])
     print(f"  잘하는점 {len(strength_df)}건, 노력해야할점 {len(weakness_df)}건, "
           f"부서장의견 {len(leader_df)}건 (유효 응답)")
