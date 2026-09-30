@@ -4369,10 +4369,20 @@ function renderSubjectiveAnalysisCard(data) {
     ? `<ul>${top.slice(0, 5).map(([mid, pct]) => `<li>${escapeHtml(mid)} <span class="ai-pct">${(pct * 100).toFixed(1)}%</span></li>`).join("")}</ul>`
     : `<p class="note-box">표본 부족 또는 데이터 없음</p>`;
 
+  // 특화문항(조직 맞춤 객관식 문항) — area_scores와 달리 대시보드의 다른
+  // 탭에는 없는 데이터라, 이 카드에서만 볼 수 있음(scripts/custom_questions_
+  // loader.py -> subjective_report.py를 거쳐 이 JSON에 실려 옴).
+  const customQuestions = entry.custom_questions || {};
+  const customQuestionCells = Object.entries(customQuestions).map(([q, score]) =>
+    `<div class="ai-kpi"><div class="ai-kpi-label">${escapeHtml(q)}</div>
+      <div class="ai-kpi-value">${fmtScore(score)}</div></div>`
+  ).join("");
+
   return `
     <div class="ai-analysis-card">
       <div class="section-title">AI 종합 분석 — 주관식 + 객관식 통합 (${escapeHtml(entry.org_name || data.dept_name)})</div>
       ${kpiCells ? `<div class="ai-kpi-row">${kpiCells}</div>` : ""}
+      ${customQuestionCells ? `<div class="ai-top-title">특화문항</div><div class="ai-kpi-row">${customQuestionCells}</div>` : ""}
       ${entry.narrative_summary
         ? `<div class="ai-narrative">${escapeHtml(entry.narrative_summary)}</div>`
         : `<p class="note-box">종합 분석 없음 (LLM 미사용 또는 생성 실패)</p>`}

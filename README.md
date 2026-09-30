@@ -13,6 +13,8 @@ scripts/generate_dummy_data.py   더미 데이터 생성 (5레벨 조직 예시)
 scripts/xlwings_loader.py   DRM 엑셀 4번째 시트 -> JSON 변환 (실 데이터용)
 scripts/segment_loader.py   DRM 엑셀의 부서별 "문항별 결과" 시트 -> 세그먼트 JSON 변환 (실 데이터용)
 scripts/qualitative_loader.py  DRM 엑셀의 주관식(구분/부서명/내용) 표 -> 주관식 JSON 변환 (실 데이터용)
+scripts/custom_questions_loader.py  DRM 엑셀의 부서별 특화문항(조직 맞춤 객관식) 점수 표 ->
+                             data/custom_questions_data.json 변환 (실 데이터용, subjective_report.py가 사용)
 scripts/xlwings_utils.py    위 로더들이 공유하는 Excel 연결 헬퍼 (DRM 복호화 우회용 open_or_attach())
 scripts/generate_dummy_segment_data.py  더미 세그먼트 데이터 생성
 data/dummy_survey_data.json 생성된 더미 부서별 설문 데이터

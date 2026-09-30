@@ -8,16 +8,22 @@
 모두 "진단부서"(또는 "진단부서명")로 부서를 식별하며, 로딩 시 이 둘을
 "진단부서" 컬럼 하나로 통일합니다(unify_dept_column).
 
+객관식(4번째 입력, 별도 파일 — scripts/custom_questions_loader.py로 미리
+data/custom_questions_data.json을 만들어 둠): 특화문항(조직마다 다를 수
+있는 맞춤형 객관식 문항) 점수. dept_code로 미리 매칭되어 있어 이 스크립트는
+그 JSON을 그대로 읽기만 합니다.
+
 처리: xlwings로 읽기 -> pandas로 위치 기반 컬럼명 부여/집계 -> 로컬 vLLM으로
 조직×카테고리 테마/부서장 의견/조직별 총평·종합 분석 요약 -> python-docx +
 matplotlib로 조직별 임원보고용 .docx 생성. 조직명은 segment_loader.py/
 qualitative_loader.py와 동일한 load_dept_code_lookup()으로 dept_code에
-매칭되고, 그 dept_code로 객관식 설문 지표(data/survey_data.json 등)를
-찾아 총평/종합 분석 LLM 프롬프트에 근거로 포함시킵니다. 최종적으로 조직별
-분석 결과 전체를 dept_code로 키를 맞춰 data/subjective_analysis.json 하나에
-모아 쓰는데, 이 파일을 dashboard/index.html의 "주관식분석" 탭에서 불러오면
-이미 로드되어 있는 객관식 지표와 한 화면에서 통합해 볼 수 있습니다(조직별로
-따로 파일을 만들지 않음 — 대시보드가 그 역할을 대신함).
+매칭되고, 그 dept_code로 객관식 설문 지표(data/survey_data.json의
+area_scores 등 + data/custom_questions_data.json의 특화문항)를 찾아 총평/
+종합 분석 LLM 프롬프트에 근거로 포함시킵니다. 최종적으로 조직별 분석 결과
+전체(특화문항 포함)를 dept_code로 키를 맞춰 data/subjective_analysis.json
+하나에 모아 쓰는데, 이 파일을 dashboard/index.html의 "주관식분석" 탭에서
+불러오면 이미 로드되어 있는 객관식 지표와 한 화면에서 통합해 볼 수
+있습니다(조직별로 따로 파일을 만들지 않음 — 대시보드가 그 역할을 대신함).
 
 실행:
     python scripts/subjective_report.py
@@ -102,6 +108,12 @@ CONFIG = {
     # 객관식 점수가 근거로 같이 들어감.
     "OBJECTIVE_DATA_PATH": None,
 
+    # 특화문항(조직별 맞춤 객관식 문항) 점수 JSON 경로 — scripts/
+    # custom_questions_loader.py 출력. None이면 data/custom_questions_data.json을
+    # 자동 탐색. dept_code로 매칭되어 위 area_scores와 함께 총평/종합 분석
+    # LLM 프롬프트의 객관식 근거에 포함되고, 대시보드 JSON에도 실려 나감.
+    "CUSTOM_QUESTIONS_PATH": None,
+
     # 대시보드 통합용 결과 JSON 경로. None이면 data/subjective_analysis.json에
     # 씀 — dashboard/index.html의 "주관식분석" 탭 "주관식 AI 분석 불러오기"
     # 버튼으로 이 파일을 불러오면, 조직별 종합 분석/Top5/부서장 의견 요약이
@@ -169,6 +181,27 @@ def load_objective_records(path=None):
         if p is None:
             print(f"  warning: 객관식 지표 파일을 찾을 수 없습니다 — "
                   f"{DATA_DIR / 'survey_data.json'} (해당 섹션 생략)", file=sys.stderr)
+            return {}
+    with open(p, "r", encoding="utf-8") as f:
+        records = json.load(f)
+    return {r["dept_code"]: r for r in records if r.get("dept_code")}
+
+
+def load_custom_questions_records(path=None):
+    """특화문항(조직마다 다를 수 있는 맞춤형 객관식 문항) 점수 JSON —
+    scripts/custom_questions_loader.py의 출력 — 을 읽어 {dept_code: record}
+    딕셔너리로 반환합니다. path를 안 주면 data/custom_questions_data.json을
+    찾고, 없으면 빈 딕셔너리를 반환합니다(이 경우 특화문항 없이 area_scores
+    등 나머지 객관식 지표만으로 진행 — load_objective_records와 동일하게
+    없어도 에러 없이 그냥 생략됨)."""
+    if path:
+        p = Path(path)
+        if not p.exists():
+            print(f"  warning: 특화문항 파일을 찾을 수 없습니다 — {path} (해당 항목 생략)", file=sys.stderr)
+            return {}
+    else:
+        p = DATA_DIR / "custom_questions_data.json"
+        if not p.exists():
             return {}
     with open(p, "r", encoding="utf-8") as f:
         records = json.load(f)
@@ -795,6 +828,10 @@ def build_overview_facts_text(org, stats, objective=None):
                 for k, v in area_scores.items()))
         if objective.get("response_rate") is not None:
             lines.append(f"객관식 설문 참여율: {objective['response_rate']*100:.1f}%")
+        custom_questions = objective.get("custom_questions") or {}
+        if custom_questions:
+            lines.append("특화문항(조직 맞춤 객관식) 점수: " + ", ".join(
+                f"{q} {v:.1f}점" for q, v in custom_questions.items()))
     return "\n".join(lines)
 
 
@@ -1125,6 +1162,10 @@ def write_subjective_analysis_json(all_stats, out_path):
             "leader": stats.get("leader"),
             "leader_summary": stats.get("leader_summary") or "",
             "theme_summaries": {f"{kind}::{mid}": text for (kind, mid), text in stats.get("theme_summaries", {}).items()},
+            # 특화문항은 대시보드가 아직 다른 경로로 갖고 있지 않은 데이터라
+            # (area_scores 등은 이미 대시보드에 로드되어 있어 여기 안 실음)
+            # 별도 로더/버튼 없이 이 JSON 하나로 바로 보이도록 같이 실음.
+            "custom_questions": (stats.get("objective") or {}).get("custom_questions") or {},
         }
     if skipped:
         print(f"  warning: dept_code 매칭 실패로 대시보드 연동 JSON에서 제외된 조직: {skipped}", file=sys.stderr)
@@ -1173,6 +1214,7 @@ def build_all_org_stats(strength_df, weakness_df, leader_df, config=CONFIG):
     top_k = config["TOP_K"]
     top_k_amb = config["TOP_K_AMBIVALENT"]
     objective_records = load_objective_records(config.get("OBJECTIVE_DATA_PATH"))
+    custom_question_records = load_custom_questions_records(config.get("CUSTOM_QUESTIONS_PATH"))
     dept_code_by_name = load_dept_code_lookup()
 
     company_strength_baseline = compute_company_baseline(strength_df, org_level, prob_min)
@@ -1225,6 +1267,10 @@ def build_all_org_stats(strength_df, weakness_df, leader_df, config=CONFIG):
                   f"(data/survey_data.json의 dept_name과 표기가 다를 수 있음) — "
                   f"객관식 지표 연동 및 대시보드 통합 없이 진행합니다.", file=sys.stderr)
         objective = objective_records.get(dept_code) if dept_code else None
+        custom_q = custom_question_records.get(dept_code) if dept_code else None
+        if custom_q and custom_q.get("custom_questions"):
+            objective = dict(objective) if objective else {}
+            objective["custom_questions"] = custom_q["custom_questions"]
         stats = {
             "strength": s_stats, "weakness": w_stats, "leader": l_stats,
             "strength_top": strength_top, "weakness_top": weakness_top,
