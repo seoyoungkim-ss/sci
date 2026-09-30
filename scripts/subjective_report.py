@@ -718,6 +718,23 @@ def summarize_org_overview(org, facts_text, config=CONFIG, cache=None):
     return call_llm(LLM_SYSTEM_PROMPT, user, cache or {}, config)
 
 
+def summarize_integrated_narrative(org, facts_text, config=CONFIG, cache=None):
+    """주관식 분석 결과와 객관식 설문 점수를 하나로 합쳐, 개조식/목록이 아니라
+    자연스럽게 읽히는 5문장짜리 서술형 문단으로 요약합니다. build_org_report()/
+    build_org_report_html() 최상단에 "종합 분석"으로 노출되는, 이 조직에 대한
+    가장 압축된 한 장 요약입니다."""
+    user = (
+        f"조직: {org}\n아래는 이 조직의 주관식 응답 집계와(있는 경우) 객관식 설문 점수를 합친 "
+        f"확정 수치입니다 — 여기 없는 숫자나 사실은 만들지 말고 그대로만 활용하세요:\n{facts_text}\n\n"
+        "이 내용을 주관식(강점/개선/부서장 의견)과 객관식(설문 점수) 결과를 모두 아우르는 하나의 "
+        "종합 분석으로, 정확히 5개 문장으로 구성된 서술형 문단으로 작성해 주세요. 개조식이나 "
+        "목록(- 등)은 쓰지 말고 문장과 문장이 자연스럽게 이어지는 글로 쓰세요. 각 문장은 서로 다른 "
+        "근거(수치/패턴)를 담아야 하고, 객관식 점수가 있다면 주관식 패턴과 연결해서 설명하되 근거 "
+        "없는 인과관계 단정은 피하세요. 마지막 문장은 이 조직에 대한 종합적 시사점으로 마무리하세요."
+    )
+    return call_llm(LLM_SYSTEM_PROMPT, user, cache or {}, config)
+
+
 def build_overview_facts_text(org, stats, objective=None):
     """조직별 임원 총평 프롬프트에 넣을 "확정 수치" 텍스트를 만듭니다. objective가
     주어지면(load_objective_records() 결과에서 해당 조직명을 찾은 레코드) 객관식
@@ -806,7 +823,7 @@ def _set_run_korean_font(run, name=FONT_KR):
     rfonts.set(qn("w:eastAsia"), name)
 
 
-def add_kr_paragraph(doc, text="", size=None, bold=False, color_hex=None, align=None):
+def add_kr_paragraph(doc, text="", size=None, bold=False, color_hex=None, align=None, italic=False):
     from docx.shared import Pt, RGBColor
     p = doc.add_paragraph()
     if align is not None:
@@ -816,6 +833,7 @@ def add_kr_paragraph(doc, text="", size=None, bold=False, color_hex=None, align=
     if size:
         run.font.size = Pt(size)
     run.font.bold = bold
+    run.font.italic = italic
     if color_hex:
         run.font.color.rgb = RGBColor.from_string(color_hex)
     return p
@@ -900,6 +918,11 @@ def build_org_report(org, stats, tmp_dir, out_path, config=CONFIG):
         run.font.color.rgb = docx.shared.RGBColor.from_string(COLOR_GOLD)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         set_cell_background(cell, COLOR_NAVY)
+
+    # --- 종합 분석 (주관식+객관식 통합 5문장 서술형, LLM 결과 없으면 섹션 생략) ---
+    if stats.get("narrative_summary"):
+        add_kr_heading(doc, "종합 분석", level=2)
+        add_kr_paragraph(doc, stats["narrative_summary"].strip(), size=11, italic=True)
 
     # --- 총평 (LLM 결과 없으면 섹션 생략) ---
     if stats.get("overview_summary"):
@@ -1020,6 +1043,13 @@ def build_company_report(all_stats, out_path):
             r.font.size = Pt(10)
 
     doc.add_paragraph()
+    add_kr_heading(doc, "조직별 종합 분석", level=2)
+    for org, stats in all_stats.items():
+        add_kr_paragraph(doc, str(org), size=11, bold=True, color_hex=COLOR_NAVY)
+        narrative = stats.get("narrative_summary") or "(종합 분석 없음 — LLM 미사용 또는 생성 실패)"
+        add_kr_paragraph(doc, narrative.strip(), size=10, italic=True)
+
+    doc.add_paragraph()
     add_kr_heading(doc, "조직별 총평 요약", level=2)
     for org, stats in all_stats.items():
         add_kr_paragraph(doc, str(org), size=11, bold=True, color_hex=COLOR_NAVY)
@@ -1075,6 +1105,8 @@ table.sev {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
 table.sev th, table.sev td {{ border: 1px solid #E0E0E0; padding: 6px 10px; text-align: center; font-size: 13px; }}
 table.sev th {{ background: #{COLOR_NAVY}; color: #fff; }}
 .overview-text {{ font-size: 14px; line-height: 1.7; white-space: pre-line; }}
+.narrative-card {{ background: #FFF9EE; border: 1px solid #{COLOR_GOLD}; }}
+.narrative-text {{ font-style: italic; color: #333; white-space: normal; }}
 footer.notes {{ font-size: 11px; color: #999; margin-top: 20px; line-height: 1.6; }}
 a {{ color: #{COLOR_NAVY}; }}
 .company-list a {{ display: block; padding: 8px 0; border-bottom: 1px solid #EEE; text-decoration: none; }}
@@ -1136,6 +1168,11 @@ def build_org_report_html(org, stats, out_path, config=CONFIG):
     parts.append(f"<h1>{_esc(org)}</h1><div class='subtitle'>주관식 응답 분석 · 임원보고용</div>")
 
     parts.append(_objective_section_html(objective))
+
+    if stats.get("narrative_summary"):
+        parts.append(f'<div class="card narrative-card"><h2>종합 분석</h2>'
+                      f'<div class="overview-text narrative-text">{_esc(stats["narrative_summary"].strip())}'
+                      f'</div></div>')
 
     if stats.get("overview_summary"):
         parts.append(f'<div class="card"><h2>총평</h2>'
@@ -1212,12 +1249,20 @@ def build_company_report_html(all_stats, out_path):
         '<table class="sev"><tr><th>조직</th><th>응답수</th><th>즉시확인</th>'
         '<th>반어·냉소 비율</th><th>강점 1위</th><th>개선 1위</th></tr>' + "".join(rows) + "</table>"
     )
+    narrative_cards = []
+    for org, stats in all_stats.items():
+        narrative = stats.get("narrative_summary") or "(종합 분석 없음 — LLM 미사용 또는 생성 실패)"
+        narrative_cards.append(
+            f'<div class="card narrative-card"><h2>{_esc(org)}</h2>'
+            f'<div class="overview-text narrative-text">{_esc(narrative.strip())}</div></div>'
+        )
     html = (
         f"<!doctype html><html lang='ko'><head><meta charset='utf-8'><title>전사 종합 리포트</title>"
         f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<style>{HTML_STYLE}</style></head><body><div class='wrap'>"
         f"<h1>전사 종합</h1><div class='subtitle'>주관식 응답 분석 · 임원보고용</div>"
         f'<div class="card"><h2>조직별 요약</h2>{table_html}</div>'
+        f'<h2 style="margin:20px 4px 8px">조직별 종합 분석</h2>{"".join(narrative_cards)}'
         f'</div></body></html>'
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1318,8 +1363,9 @@ def build_all_org_stats(strength_df, weakness_df, leader_df, config=CONFIG):
             "theme_summaries": theme_summaries, "leader_summary": leader_summary,
             "objective": objective,
         }
-        stats["overview_summary"] = summarize_org_overview(
-            org, build_overview_facts_text(org, stats, objective), config, cache)
+        facts_text = build_overview_facts_text(org, stats, objective)
+        stats["overview_summary"] = summarize_org_overview(org, facts_text, config, cache)
+        stats["narrative_summary"] = summarize_integrated_narrative(org, facts_text, config, cache)
         all_stats[org] = stats
 
     save_llm_cache(config["OUT_DIR"], cache)
