@@ -732,6 +732,11 @@ def sample_texts_for_issue(df, extracted, issue, sample_n, seed):
     sub = df[df["id"].isin(ids)].copy()
     sub = sub.sort_values("점검대상점수", ascending=False, na_position="last")
     sub = sub.drop_duplicates(subset="원문", keep="first")
+    if sub.empty:
+        # pandas 엣지 케이스: 빈 DataFrame을 빈 Series로 만든 불리언 마스크로
+        # 필터링하면 행뿐 아니라 "열까지" 전부 사라져서(columns=[]) 바로 아래
+        # sub["id"] 접근이 KeyError: 'id'로 죽음 — 미리 빈 리스트로 반환해서 피함.
+        return []
     sub = sub[sub["원문"].apply(lambda t: isinstance(t, str) and 8 <= len(t.strip()) <= 300)]
     return list(zip(sub["id"].head(sample_n).tolist(), sub["원문"].head(sample_n).tolist()))
 
@@ -782,6 +787,12 @@ def sample_texts_for_unit(df, extracted, unit, unit_level, sample_n, seed):
     sub = df[(df[unit_level] == unit) & (df["id"].isin(classified_ids))].copy()
     sub = sub.sort_values("점검대상점수", ascending=False, na_position="last")
     sub = sub.drop_duplicates(subset="원문", keep="first")
+    if sub.empty:
+        # sample_texts_for_issue와 동일한 pandas 엣지 케이스 방어 — 이 조직의
+        # 응답이 전부 미분류였거나 전부 길이 필터에 걸러지면 sub가 비는데,
+        # 빈 DataFrame을 빈 불리언 마스크로 필터링하면 컬럼까지 사라져서
+        # 바로 아래 sub["id"]가 KeyError: 'id'로 죽음.
+        return []
     sub = sub[sub["원문"].apply(lambda t: isinstance(t, str) and 8 <= len(t.strip()) <= 300)]
     return list(zip(sub["id"].head(sample_n).tolist(), sub["원문"].head(sample_n).tolist()))
 
