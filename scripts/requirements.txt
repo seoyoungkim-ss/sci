@@ -1,5 +1,7 @@
 xlwings
 pandas
 requests
+openai
 python-docx
 matplotlib
+openpyxl
