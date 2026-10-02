@@ -69,7 +69,9 @@ CONFIG = {
 
     "LLM_TIMEOUT_SEC": 300,
     "LLM_TEMPERATURE": 0.2,
-    "LLM_MAX_TOKENS": 4096,  # thinkingcap은 사고 과정(<think>...</think>)이 길 수 있어 넉넉히 잡음
+    "LLM_MAX_TOKENS": 8192,  # thinkingcap은 사고 과정(<think>...</think>)이 길어서 생각만 하다 끝나는
+                             # 경우가 있어(토큰 부족 -> 실제 JSON 답변을 못 냄 -> 전부 "미분류") 넉넉히 잡음.
+                             # 그래도 미분류 비율이 높게 나오면 더 올려보세요.
     "RANDOM_SEED": 42,
 }
 
@@ -556,37 +558,64 @@ UNCLASSIFIED = {"이슈": "미분류", "성격": "불만", "요청내용": "", "
 def extract_structured_one(resp_id, text, cache, config=CONFIG):
     """응답 1건을 구조화된 JSON으로 추출합니다(1회 호출, 실패 시 1회
     재시도, 그래도 실패하면 "미분류"). 8자 미만 응답은 호출 전에 걸러서
-    바로 미분류 처리(호출부에서 이미 걸렀다고 가정하지 않고 여기서도 확인)."""
+    바로 미분류 처리(호출부에서 이미 걸렀다고 가정하지 않고 여기서도 확인).
+    재시도는 1차와 다른 프롬프트 문자열을 보내서(캐시 키가 달라짐) 실제로
+    다시 호출되도록 합니다 — 같은 문자열로 재시도하면 call_llm의 프롬프트
+    해시 캐시에 걸려 "재시도"가 사실상 같은 실패 응답을 다시 읽는 것에
+    불과해지는 문제가 있었음."""
     if not isinstance(text, str) or len(text.strip()) < 8:
-        return dict(UNCLASSIFIED)
+        return dict(UNCLASSIFIED), None
     masked = mask_identifying_info(text.strip())
-    user = (
+    base_user = (
         f"아래 응답을 분석해 JSON으로만 답하세요. 다른 설명 없이 JSON 객체 하나만 출력하세요.\n"
         f"스키마: {{\"이슈\": \"10자 내외 주제\", \"성격\": \"요청|불만|제안|칭찬\", "
         f"\"요청내용\": \"한 줄로 일반화한 문장\", \"행동영역\": \"업무지시|소통|평가|리더십|조직운영|기타\"}}\n"
         f"응답: {masked}"
     )
+    last_raw = None
     for attempt in range(2):
+        user = base_user if attempt == 0 else (
+            base_user + "\n\n(다시 요청합니다: 설명이나 생각 과정 없이 JSON 객체 하나만 출력하세요.)")
         raw = call_llm(LLM_SYSTEM_PROMPT, user, cache, config, guided_json_schema=EXTRACTION_SCHEMA)
+        last_raw = raw
         if not raw:
             break
         try:
             start, end = raw.index("{"), raw.rindex("}") + 1
             parsed = json.loads(raw[start:end])
             if all(k in parsed for k in EXTRACTION_SCHEMA["required"]):
-                return parsed
+                return parsed, None
         except (ValueError, json.JSONDecodeError):
             pass
-    return dict(UNCLASSIFIED)
+    return dict(UNCLASSIFIED), last_raw
 
 
 def extract_all(df, config=CONFIG, cache=None):
     """심각도 3/즉시확인=O 응답은 여기 들어오기 전에 반드시 제외되어 있어야
-    합니다(main()에서 필터링). 순차 호출, 캐시 적용."""
+    합니다(main()에서 필터링). 순차 호출, 캐시 적용. 미분류 비율이 높으면
+    (파싱 실패가 많다는 신호) 원인을 바로 알 수 있게 실패 샘플과 함께
+    경고를 출력합니다 — 조용히 전부 "미분류"로만 끝나서 원인을 알 수
+    없었던 문제를 막기 위함."""
     cache = cache if cache is not None else {}
     extracted = {}
+    failures = []
     for _, row in df.iterrows():
-        extracted[row["id"]] = extract_structured_one(row["id"], row.get("원문"), cache, config)
+        result, failed_raw = extract_structured_one(row["id"], row.get("원문"), cache, config)
+        extracted[row["id"]] = result
+        if failed_raw is not None:
+            failures.append((row["id"], failed_raw))
+
+    n = len(extracted)
+    n_unclassified = sum(1 for v in extracted.values() if v["이슈"] == "미분류")
+    if n and n_unclassified / n > 0.3:
+        print(f"  warning: {n}건 중 {n_unclassified}건({n_unclassified/n*100:.0f}%)이 미분류로 "
+              f"처리됐습니다 — LLM 응답 파싱이 많이 실패하고 있다는 신호입니다.", file=sys.stderr)
+        for resp_id, raw in failures[:3]:
+            snippet = raw[:200].replace("\n", " ") if raw else "(빈 응답)"
+            print(f"    예시 [{resp_id}] 원시 응답: {snippet!r}", file=sys.stderr)
+        print("    -> <think> 태그가 안 닫혀 있으면(생각만 하다 끝남) LLM_MAX_TOKENS를 "
+              "더 늘려보세요. 빈 응답이 많으면 output/_llm_cache.json에서 실제 호출 "
+              "실패 이유(에러 메시지)를 확인하세요.", file=sys.stderr)
     return extracted
 
 
@@ -732,6 +761,52 @@ def summarize_issue(issue, samples, config=CONFIG, cache=None):
         }
     except (ValueError, json.JSONDecodeError):
         return {"requests": [], "quotes": []}
+
+
+def sample_texts_for_unit(df, extracted, unit, unit_level, sample_n, seed):
+    """실(또는 팀) 하나의 토론 포인트 생성용 대표 응답 샘플: 그 조직 소속이면서
+    표준 이슈가 부여된(미분류 제외) 응답 중 점검대상점수 높은 순 -> 원문
+    중복 제거 -> 8~300자 -> 상위 sample_n건."""
+    classified_ids = {rid for rid, v in extracted.items() if v.get("표준이슈") not in (None, "미분류")}
+    sub = df[(df[unit_level] == unit) & (df["id"].isin(classified_ids))].copy()
+    sub = sub.sort_values("점검대상점수", ascending=False, na_position="last")
+    sub = sub.drop_duplicates(subset="원문", keep="first")
+    sub = sub[sub["원문"].apply(lambda t: isinstance(t, str) and 8 <= len(t.strip()) <= 300)]
+    return list(zip(sub["id"].head(sample_n).tolist(), sub["원문"].head(sample_n).tolist()))
+
+
+def summarize_unit_talking_point(unit, unit_stats, samples, config=CONFIG, cache=None):
+    """실(또는 팀) 하나에 대한 "조직별 핵심 포인트" — 사업부 평균 대비 그
+    조직만의 편차와 대표 응답을 근거로 2~3문장. 소규모 합산 그룹("기타")에는
+    호출하지 않습니다(익명성 — 호출부에서 걸러서 넘겨야 함)."""
+    if not samples:
+        return ""
+    cache = cache if cache is not None else {}
+    masked_samples = [(rid, mask_identifying_info(text)) for rid, text in samples]
+    listing = "\n".join(f"[{rid}] {text}" for rid, text in masked_samples)
+    dev = unit_stats["deviation_pp"]
+    facts = (f"이 조직 응답 {unit_stats['n']}건, 사업부 평균 대비 편차: 심각도1 {dev[1]:+.1f}%p, "
+             f"심각도2 {dev[2]:+.1f}%p, 심각도3 {dev[3]:+.1f}%p, 점검대상 비율 {unit_stats['check_target_pct']*100:.1f}%")
+    user = (
+        f"조직: {unit}\n확정 수치(전사 데이터는 없으니 전사와 비교하지 말고 사업부 평균 대비로만 "
+        f"비교하세요): {facts}\n대표 응답(각 줄 앞 [ID]는 근거 인용용):\n{listing}\n\n"
+        "이 조직만의 특징적인 토론 포인트를 2~3문장으로 작성해 주세요. 사업부 평균과 비교해 "
+        "이 조직에서 두드러지는 점이 무엇인지, 응답 내용과 수치에 근거해서만 쓰고 과장하지 마세요."
+    )
+    return call_llm(LLM_SYSTEM_PROMPT, user, cache, config)
+
+
+def generate_unit_talking_points(df, extracted, by_unit, unit_level, sample_n, seed, config=CONFIG, cache=None):
+    """소규모 합산 그룹("기타")을 제외한 실제 조직마다 토론 포인트를 생성해
+    {unit: text} 딕셔너리로 반환합니다."""
+    cache = cache if cache is not None else {}
+    points = {}
+    for unit, stats in by_unit.items():
+        if stats["is_merged_small"]:
+            continue
+        samples = sample_texts_for_unit(df, extracted, unit, unit_level, sample_n, seed)
+        points[unit] = summarize_unit_talking_point(unit, stats, samples, config, cache)
+    return points
 
 
 def build_brief_facts_text(division_summary, issue_agg, top5_issues, by_unit):
@@ -998,7 +1073,7 @@ def build_kpi_table(doc, division_summary):
 def build_brief_docx(div_name, division_summary, by_type, major_dist, by_unit,
                       heatmap_severity, issue_agg, top5_issues, issue_summaries,
                       three_lines, agenda, quality, year_trend, heatmap_type_top5,
-                      tmp_dir, out_path, config=CONFIG):
+                      unit_talking_points, tmp_dir, out_path, config=CONFIG):
     import docx
     from docx.shared import Cm
 
@@ -1061,12 +1136,15 @@ def build_brief_docx(div_name, division_summary, by_type, major_dist, by_unit,
             add_kr_paragraph(doc, f"  \"{quote.get('text', '')}\" (근거: {ids})", size=8.5, italic=True,
                               color_hex="555555")
 
-    add_kr_heading(doc, f"{config['UNIT_LEVEL']}별 상세 ({config['UNIT_LEVEL']} x 유형 Top3)", level=2)
+    add_kr_heading(doc, f"{config['UNIT_LEVEL']}별 상세 ({config['UNIT_LEVEL']} x 유형 Top3) 및 조직별 핵심 포인트",
+                   level=2)
     for unit, stats in by_unit.items():
-        label = unit if not stats["is_merged_small"] else unit
         types_txt = ", ".join(f"{t}({c}건)" for t, c in stats["top_types"]) or "-"
-        add_kr_paragraph(doc, f"{label}: 응답 {stats['n']}건, 점검대상 {stats['check_target_pct']*100:.1f}%, "
-                               f"즉시확인 {stats['immediate_count']}건, 유형 Top3: {types_txt}", size=9)
+        add_kr_paragraph(doc, f"{unit}: 응답 {stats['n']}건, 점검대상 {stats['check_target_pct']*100:.1f}%, "
+                               f"즉시확인 {stats['immediate_count']}건, 유형 Top3: {types_txt}", size=9, bold=True)
+        talking_point = unit_talking_points.get(unit)
+        if talking_point:
+            add_kr_paragraph(doc, f"  {talking_point}", size=8.5, italic=True, color_hex="555555")
 
     add_kr_heading(doc, "대분류 분포", level=2)
     add_kr_paragraph(doc, ", ".join(f"{m}({c}건)" for m, c in major_dist.items()) or "-", size=9)
@@ -1198,6 +1276,11 @@ def main(config=CONFIG):
                                           config["RANDOM_SEED"])
         issue_summaries[issue] = summarize_issue(issue, samples, config, cache)
 
+    print("조직별 핵심 포인트 생성 중...")
+    unit_talking_points = generate_unit_talking_points(llm_eligible, extracted, by_unit,
+                                                        config["UNIT_LEVEL"], config["SAMPLE_N"],
+                                                        config["RANDOM_SEED"], config, cache)
+
     facts_text = build_brief_facts_text(division_summary, issue_agg, top5_issues, by_unit)
     three_lines = generate_brief_three_lines(facts_text, config, cache)
     agenda = generate_discussion_agenda(facts_text, config, cache)
@@ -1209,13 +1292,14 @@ def main(config=CONFIG):
     build_brief_docx(div_name, division_summary, by_type, major_dist, by_unit,
                       heatmap_severity, issue_agg, top5_issues, issue_summaries,
                       three_lines, agenda, quality, year_trend, heatmap_type_top5,
-                      tmp_dir, out_path, config)
+                      unit_talking_points, tmp_dir, out_path, config)
     print(f"  {out_path}")
 
     results_payload = {
         "division_summary": division_summary, "by_type": by_type, "major_dist": major_dist,
         "by_unit": by_unit, "issue_agg": issue_agg, "issue_unit": issue_unit,
         "top5_issues": top5_issues, "issue_summaries": issue_summaries,
+        "unit_talking_points": unit_talking_points,
         "three_lines": three_lines, "agenda": agenda, "quality": quality,
         "year_trend": year_trend,
     }
