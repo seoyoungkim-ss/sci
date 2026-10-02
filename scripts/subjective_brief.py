@@ -482,13 +482,16 @@ def call_llm(system, user, cache, config=CONFIG, guided_json_schema=None):
     try:
         from openai import OpenAI
         # 사내망 내부 주소인데 시스템 프록시를 타면서 막히는 사례가 있었음
-        # (교훈: subjective_report.py 작업 당시 proxies 명시로 해결) — 여기서도
-        # 같은 문제를 피하기 위해 httpx 클라이언트에서 프록시를 명시적으로 끔.
+        # (교훈: subjective_report.py 작업 당시 겪음) — 여기서도 같은 문제를
+        # 피하기 위해 httpx 클라이언트가 환경변수/시스템 프록시 설정을 아예
+        # 안 읽도록 trust_env=False로 끔. (주의: httpx.Client(proxies=...)는
+        # 최신 httpx에서 제거된 kwarg라 TypeError가 나므로 쓰지 않음 —
+        # trust_env는 버전에 관계없이 안정적으로 지원됨.)
         try:
             import httpx
-            http_client = httpx.Client(proxies={"http://": None, "https://": None},
-                                        timeout=config["LLM_TIMEOUT_SEC"])
-        except Exception:
+            http_client = httpx.Client(trust_env=False, timeout=config["LLM_TIMEOUT_SEC"])
+        except Exception as e:
+            print(f"  warning: httpx 클라이언트 생성 실패(프록시 우회 미적용) — {e}", file=sys.stderr)
             http_client = None
         client = OpenAI(base_url=config["BASE_URL"], api_key=config["API_KEY"],
                          timeout=config["LLM_TIMEOUT_SEC"], http_client=http_client)
