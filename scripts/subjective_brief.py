@@ -711,7 +711,11 @@ def aggregate_issues(df, extracted, unit_level, min_n):
     issue_unit = {}
     for (issue, unit), g in issue_df[issue_df["표준이슈"] != "미분류"].groupby(["표준이슈", "unit"], sort=False):
         if len(g) >= min_n:
-            issue_unit.setdefault(issue, {})[unit] = int(len(g))
+            sev = pd.to_numeric(g["심각도"], errors="coerce").fillna(0)
+            issue_unit.setdefault(issue, {})[unit] = {
+                "n": int(len(g)),
+                "severe_ge2_pct": float((sev >= 2).sum() / len(g)),
+            }
 
     top5 = sorted(issue_agg.items(),
                   key=lambda kv: (kv[1]["severe_ge2_n"], kv[1]["check_target_score_mean"] or 0),
@@ -733,34 +737,41 @@ def sample_texts_for_issue(df, extracted, issue, sample_n, seed):
 
 
 def summarize_issue(issue, samples, config=CONFIG, cache=None):
-    """표준 이슈 하나에 대해 '핵심 요청 최대 3개(각 한 줄) + 대표 의견
-    2개(일반화한 한 문장)'를 만들고, 각 문장에 근거 응답 ID를 붙입니다.
-    LLM이 ID를 그대로 인용하도록 프롬프트에 샘플마다 ID를 명시합니다."""
+    """표준 이슈 하나에 대해 (1) 원문에서 반복되는 패턴·배경을 분석한
+    3~4문장 서술형 '분석', (2) 핵심 요청 최대 3개(각 한 줄), (3) 대표 의견
+    2개(일반화한 한 문장)를 만들고, 요청/의견 각 문장에 근거 응답 ID를
+    붙입니다. "분석"은 단순 재요약이 아니라 응답에서 실제로 반복되는
+    구체적 상황/표현을 근거로 들고 그게 뭘 시사하는지까지 담아야 합니다
+    (LLM_SYSTEM_PROMPT에 이미 같은 지시가 있지만 여기서도 명시)."""
     if not samples:
-        return {"requests": [], "quotes": []}
+        return {"analysis": "", "requests": [], "quotes": []}
     cache = cache if cache is not None else {}
     masked_samples = [(rid, mask_identifying_info(text)) for rid, text in samples]
     listing = "\n".join(f"[{rid}] {text}" for rid, text in masked_samples)
     user = (
         f"이슈: {issue}\n아래는 이 이슈로 분류된 실제 응답입니다(각 줄 앞 [ID]는 근거 "
-        f"인용용 응답 ID):\n{listing}\n\n"
+        f"인용용 응답 ID, 총 {len(samples)}건):\n{listing}\n\n"
         "다음을 JSON으로만 답하세요(다른 설명 없이):\n"
-        "{\"requests\": [\"핵심 요청 한 줄\", ...최대 3개], "
+        "{\"analysis\": \"이 응답들에서 반복되는 구체적 상황/표현이 무엇인지, 그것이 "
+        "조직 운영에 시사하는 바가 무엇인지를 3~4문장으로 분석(단순 재요약 금지, "
+        "근거가 된 패턴을 구체적으로 언급)\", "
+        "\"requests\": [\"핵심 요청 한 줄\", ...최대 3개], "
         "\"quotes\": [{\"text\": \"대표 의견을 일반화한 한 문장(원문 그대로 쓰지 말고 "
         "개인 식별 요소 제거)\", \"evidence_ids\": [\"근거로 쓴 응답 ID\"]}, ...최대 2개]}"
     )
     raw = call_llm(LLM_SYSTEM_PROMPT, user, cache, config)
     if not raw:
-        return {"requests": [], "quotes": []}
+        return {"analysis": "", "requests": [], "quotes": []}
     try:
         start, end = raw.index("{"), raw.rindex("}") + 1
         parsed = json.loads(raw[start:end])
         return {
+            "analysis": parsed.get("analysis", ""),
             "requests": parsed.get("requests", [])[:3],
             "quotes": parsed.get("quotes", [])[:2],
         }
     except (ValueError, json.JSONDecodeError):
-        return {"requests": [], "quotes": []}
+        return {"analysis": "", "requests": [], "quotes": []}
 
 
 def sample_texts_for_unit(df, extracted, unit, unit_level, sample_n, seed):
@@ -1070,8 +1081,52 @@ def build_kpi_table(doc, division_summary):
         set_cell_background(cell, COLOR_NAVY)
 
 
+def add_issue_unit_severity_table(doc, issue_agg, issue_unit, config=CONFIG):
+    """표준 이슈 x 조직(실/팀) 심각도 매트릭스 표. 셀 = "n건(심각도≥2 XX%)",
+    MIN_N 미만이라 집계에서 빠진 조합은 "-"로 표시(익명성 — aggregate_issues가
+    이미 걸러서 넘긴 issue_unit 그대로 사용하므로 여기선 추가 필터링 불필요)."""
+    import docx
+    from docx.shared import Pt
+
+    units = sorted({u for per_unit in issue_unit.values() for u in per_unit})
+    issues = [i for i in issue_agg if i in issue_unit]
+    if not units or not issues:
+        add_kr_paragraph(doc, f"조직별로 표시할 만큼 응답이 모인 이슈가 없습니다"
+                               f"(조직당 n<{config['MIN_N']}).", size=9, color_hex="999999")
+        return
+
+    table = doc.add_table(rows=1 + len(issues), cols=1 + len(units))
+    table.style = "Table Grid"
+    header_cells = ["표준 이슈"] + units
+    for i, h in enumerate(header_cells):
+        cell = table.cell(0, i)
+        r = cell.paragraphs[0].add_run(h)
+        _set_run_korean_font(r)
+        r.font.bold = True
+        r.font.size = Pt(8.5)
+        r.font.color.rgb = docx.shared.RGBColor.from_string("FFFFFF")
+        set_cell_background(cell, COLOR_NAVY)
+
+    for row_i, issue in enumerate(issues, start=1):
+        cell = table.cell(row_i, 0)
+        r = cell.paragraphs[0].add_run(issue)
+        _set_run_korean_font(r)
+        r.font.bold = True
+        r.font.size = Pt(8.5)
+        for col_i, unit in enumerate(units, start=1):
+            stats = issue_unit.get(issue, {}).get(unit)
+            cell = table.cell(row_i, col_i)
+            text = f"{stats['n']}건({stats['severe_ge2_pct']*100:.0f}%)" if stats else "-"
+            r = cell.paragraphs[0].add_run(text)
+            _set_run_korean_font(r)
+            r.font.size = Pt(8.5)
+            if stats and stats["severe_ge2_pct"] >= 0.5:
+                r.font.color.rgb = docx.shared.RGBColor.from_string(COLOR_CORAL)
+                r.font.bold = True
+
+
 def build_brief_docx(div_name, division_summary, by_type, major_dist, by_unit,
-                      heatmap_severity, issue_agg, top5_issues, issue_summaries,
+                      heatmap_severity, issue_agg, issue_unit, top5_issues, issue_summaries,
                       three_lines, agenda, quality, year_trend, heatmap_type_top5,
                       unit_talking_points, tmp_dir, out_path, config=CONFIG):
     import docx
@@ -1129,12 +1184,19 @@ def build_brief_docx(div_name, division_summary, by_type, major_dist, by_unit,
         add_kr_paragraph(doc, f"{issue} — {stats['n']}건 ({stats['pct']*100:.1f}%), "
                                f"심각도≥2 {stats['severe_ge2_pct']*100:.1f}%", size=9.5, bold=True)
         summary = issue_summaries.get(issue, {})
+        if summary.get("analysis"):
+            add_kr_paragraph(doc, f"  {summary['analysis']}", size=9, italic=True, color_hex="333333")
         for req in summary.get("requests", []):
             add_kr_paragraph(doc, f"  - {req}", size=9)
         for quote in summary.get("quotes", []):
             ids = ", ".join(quote.get("evidence_ids", []))
             add_kr_paragraph(doc, f"  \"{quote.get('text', '')}\" (근거: {ids})", size=8.5, italic=True,
                               color_hex="555555")
+
+    add_kr_heading(doc, "표준 이슈 x 조직별 심각도", level=2)
+    add_kr_paragraph(doc, f"셀 = 응답 건수(심각도≥2 비율). 조직당 응답 n<{config['MIN_N']}인 "
+                           f"조합은 \"-\"로 표시(익명성 보호).", size=8, color_hex="999999")
+    add_issue_unit_severity_table(doc, issue_agg, issue_unit, config)
 
     add_kr_heading(doc, f"{config['UNIT_LEVEL']}별 상세 ({config['UNIT_LEVEL']} x 유형 Top3) 및 조직별 핵심 포인트",
                    level=2)
@@ -1290,7 +1352,7 @@ def main(config=CONFIG):
     print("Word 브리프 생성 중...")
     out_path = out_dir / f"{safe_filename(div_name)}_부서장의견_브리프.docx"
     build_brief_docx(div_name, division_summary, by_type, major_dist, by_unit,
-                      heatmap_severity, issue_agg, top5_issues, issue_summaries,
+                      heatmap_severity, issue_agg, issue_unit, top5_issues, issue_summaries,
                       three_lines, agenda, quality, year_trend, heatmap_type_top5,
                       unit_talking_points, tmp_dir, out_path, config)
     print(f"  {out_path}")
