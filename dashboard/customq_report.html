@@ -208,19 +208,6 @@ function allDeptNames() {
 function childrenOf(name) {
   return allDeptNames().filter(n => state.parentMap[n] === name);
 }
-/** 자기 자신 + 모든 하위(재귀) 부서명. 순환 참조(관리자가 실수로 A->B->A로
- * 지정하는 경우)가 생겨도 무한루프에 빠지지 않도록 방문한 노드를 추적합니다. */
-function descendantsOf(name) {
-  const result = [];
-  const visited = new Set();
-  (function visit(n) {
-    if (visited.has(n)) return;
-    visited.add(n);
-    result.push(n);
-    for (const c of childrenOf(n)) visit(c);
-  })(name);
-  return result;
-}
 /** 후보 상위 부서를 골랐을 때 순환이 생기는지 확인 — 드롭다운에서 그런
  * 선택지를 아예 안 보이게 걸러내는 데 씀. */
 function wouldCreateCycle(childName, candidateParent) {
@@ -276,14 +263,24 @@ function orderedTreeRows() {
 function recordFor(quarter, name) {
   return (state.quarters[quarter] || []).find(r => r.dept_name === name) || null;
 }
-/** rootName(및 그 산하 전체)의 한 분기 한 지표 평균값. 지표가 없는 하위
- * 조직은 건너뛰고, 값이 하나도 없으면 null(= "데이터 없음", 화면엔 "-"). */
-function rollupValue(quarter, rootName, metricKey) {
+/** rootName 한 분기 한 지표 값. 그 부서 자신의 실제 엑셀 데이터가 있으면
+ * (산하를 평균 내지 않고) 그 값을 그대로 씁니다 — 산하 부서 설정은 자기
+ * 데이터가 "없는" 조직(엑셀에 자기 행이 없는 상위 묶음 등)의 값을 추정하기
+ * 위한 것이지, 실제 데이터가 있는 조직의 값을 덮어쓰기 위한 게 아닙니다.
+ * 자기 데이터가 없을 때만 산하 부서들의 값을(재귀적으로, 즉 산하도 자기
+ * 데이터가 있으면 그걸 우선하는 식으로) 평균 내서 대신 씁니다. */
+function rollupValue(quarter, rootName, metricKey, visited) {
+  visited = visited || new Set();
+  if (visited.has(rootName)) return null; // 순환 참조 방어(이미 꼬인 기존 데이터)
+  visited.add(rootName);
+
+  const ownRec = recordFor(quarter, rootName);
+  const ownVal = ownRec ? (metricKey === "응답률" ? ownRec.response_rate : (ownRec.scores ? ownRec.scores[metricKey] : null)) : null;
+  if (typeof ownVal === "number") return ownVal;
+
   const vals = [];
-  for (const name of descendantsOf(rootName)) {
-    const rec = recordFor(quarter, name);
-    if (!rec) continue;
-    const v = metricKey === "응답률" ? rec.response_rate : (rec.scores ? rec.scores[metricKey] : null);
+  for (const child of childrenOf(rootName)) {
+    const v = rollupValue(quarter, child, metricKey, visited);
     if (typeof v === "number") vals.push(v);
   }
   if (!vals.length) return null;
@@ -655,9 +652,17 @@ function renderMainTable() {
   const thead = `<thead><tr><th class="text-col">조직</th><th>응답률</th>${QUESTION_KEYS.map(k => `<th>${escapeHtml(k)}</th>`).join("")}</tr></thead>`;
   const tbody = `<tbody>${treeRows.map(({ name, depth }) => {
     const hasKids = childrenOf(name).length > 0;
+    // 산하가 있어도 그 조직 자신의 엑셀 데이터가 있으면 그 값을 그대로 쓰고
+    // (rollupValue 참고) 평균 내지 않으므로, "산하 평균" 안내는 자기 데이터가
+    // 하나도 없어서 보이는 값 전부가 실제로 산하 평균으로 대체된 경우에만
+    // 보여줌 — 레코드 "존재 여부"가 아니라 숫자 값이 하나라도 있는지로 판단
+    // (엑셀에 그 부서 행 자체는 있어도 문항 칸이 전부 "-"인 경우가 있음).
+    const ownHasAnyValue = ["응답률", ...QUESTION_KEYS].some(k => typeof (
+      k === "응답률" ? recordFor(state.quarterCurrent, name)?.response_rate : recordFor(state.quarterCurrent, name)?.scores?.[k]
+    ) === "number");
     const indent = "　".repeat(depth) + (depth > 0 ? "└ " : "");
-    const nameCell = hasKids
-      ? `<td class="text-col">${indent}${escapeHtml(name)}<span class="org-children-note">산하 포함 평균</span></td>`
+    const nameCell = (hasKids && !ownHasAnyValue)
+      ? `<td class="text-col">${indent}${escapeHtml(name)}<span class="org-children-note">산하 평균(자체 데이터 없음)</span></td>`
       : `<td class="text-col">${indent}${escapeHtml(name)}</td>`;
     return `<tr>${nameCell}${cellHtml(name, "응답률", true)}${QUESTION_KEYS.map(k => cellHtml(name, k, false)).join("")}</tr>`;
   }).join("")}</tbody>`;
