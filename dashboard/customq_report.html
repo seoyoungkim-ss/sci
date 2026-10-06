@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>특화문항 전체 비교 보고서</title>
+<style>
+  :root {
+    --navy-900: #0f1b33;
+    --navy-800: #16233f;
+    --navy-700: #1f3157;
+    --navy-600: #2c4470;
+    --navy-100: #e8ecf6;
+    --paper: #f5f6fa;
+    --card: #ffffff;
+    --coral: #ff6f5e;
+    --coral-dark: #e2503f;
+    --positive: #2f9e6e;
+    --negative: #e2503f;
+    --muted: #8a90a3;
+    --border: #e3e6ef;
+    --text: #1a2236;
+    --radius: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--text); font-size: 14px; }
+  a { color: inherit; }
+
+  header.app-header {
+    background: var(--navy-900); color: #fff;
+    padding: 14px 24px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  }
+  header.app-header .title { font-size: 17px; font-weight: 700; }
+  .file-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid transparent; border-radius: 8px; padding: 7px 12px;
+    font-size: 12.5px; font-weight: 600; cursor: pointer;
+    background: var(--navy-700); color: #fff; white-space: nowrap;
+  }
+  .btn:hover { background: var(--navy-600); }
+  .btn.coral { background: var(--coral); }
+  .btn.coral:hover { background: var(--coral-dark); }
+  .btn.ghost { background: transparent; border-color: rgba(255,255,255,0.35); }
+  .btn.ghost:hover { background: rgba(255,255,255,0.1); }
+  input[type=file] { display: none; }
+  .load-status { font-size: 12px; font-weight: 600; }
+  .load-status.ok { color: #7be0ab; }
+  .load-status.error { color: #ffb4a8; }
+
+  main { padding: 20px 24px 60px; max-width: 1280px; margin: 0 auto; }
+
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 20px; }
+  .panel-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .panel-hint { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.6; }
+  .toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+  .toolbar label { font-size: 12.5px; color: var(--navy-800); display: flex; align-items: center; gap: 6px; }
+  .toolbar select, .toolbar input[type=number] { padding: 4px 6px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; }
+
+  .note-box { background: var(--navy-100); border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: var(--navy-800); line-height: 1.6; }
+  .note-box.warning { background: #fff2f0; color: var(--coral-dark); }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.data-table { border-collapse: collapse; font-size: 12px; white-space: nowrap; width: 100%; }
+  table.data-table th, table.data-table td { padding: 7px 10px; border: 1px solid var(--border); text-align: center; }
+  table.data-table th { background: var(--navy-900); color: #fff; font-weight: 700; position: sticky; top: 0; }
+  table.data-table td.text-col, table.data-table th.text-col { text-align: left; }
+  table.data-table tr:nth-child(even) td { background: var(--paper); }
+  .cell-main { font-weight: 700; }
+  .cell-delta { font-size: 11px; }
+  .cell-delta.up { color: var(--positive); }
+  .cell-delta.down { color: var(--negative); }
+  .org-children-note { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+
+  .admin-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .admin-row:last-child { border-bottom: none; }
+  .admin-row .label { font-size: 13px; min-width: 160px; }
+  .admin-row select { padding: 4px 6px; font-size: 12.5px; }
+
+  .top-cols { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 10px; }
+  .top-cols > div { flex: 1; min-width: 260px; }
+  .top-cols ul { margin: 4px 0 0; padding-left: 18px; }
+  .top-cols li { margin-bottom: 4px; font-size: 13px; }
+  .top-title { font-weight: 700; font-size: 13px; color: var(--navy-800); }
+  .up { color: var(--positive); font-weight: 600; }
+  .down { color: var(--negative); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="title">특화문항 전체 비교 보고서</div>
+  <div class="file-controls">
+    <button class="btn ghost" id="btn-load-data">특화문항 데이터 불러오기</button>
+    <input type="file" id="file-data" accept=".json,application/json">
+    <span id="data-load-status" class="load-status"></span>
+  </div>
+  <div class="file-controls">
+    <button class="btn ghost" id="btn-load-hierarchy">산하부서 설정 불러오기</button>
+    <input type="file" id="file-hierarchy" accept=".json,application/json">
+    <button class="btn ghost" id="btn-save-hierarchy">산하부서 설정 저장</button>
+    <span id="hierarchy-status" class="load-status"></span>
+  </div>
+</header>
+
+<main>
+
+  <div class="panel">
+    <div class="panel-title">산하 부서 설정 (관리자)</div>
+    <div class="panel-hint">
+      이 데이터에는 조직 계층 정보가 없어서, 어떤 부서가 어떤 부서 산하인지 여기서 직접 지정합니다.
+      "상위 부서"를 지정하면 그 부서는 아래 비교표에서 독립된 행으로 나오지 않고, 상위 부서 점수에
+      (자기 자신 + 다른 산하 부서들과 함께) 평균으로 합산됩니다. 상위 부서를 지정하지 않은 부서만
+      표의 한 행이 됩니다.
+    </div>
+    <div id="hierarchy-list"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">전체 비교표</div>
+    <div class="panel-hint" id="main-table-hint"></div>
+    <div class="toolbar" id="main-table-toolbar"></div>
+    <div id="main-table-wrap"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">분기 간 하락·상승 Top N</div>
+    <div class="panel-hint">기준 분기 대비 비교 분기에서 점수가 가장 많이 떨어지거나 오른 조직을 추립니다. "전체 평균"을 고르면 8개 문항 평균 기준입니다.</div>
+    <div class="toolbar" id="trend-toolbar"></div>
+    <div id="trend-content"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">전체 조직 중 상위·하위 Top N</div>
+    <div class="panel-hint">한 분기 안에서 전체 조직(산하 부서는 상위 부서에 합산됨) 중 점수가 가장 높거나 낮은 곳을 추립니다.</div>
+    <div class="toolbar" id="rank-toolbar"></div>
+    <div id="rank-content"></div>
+  </div>
+
+</main>
+
+<script>
+/* =========================================================
+   State
+   ========================================================= */
+const QUESTION_KEYS = ["고객", "협업", "기술경쟁력", "실행", "윤리", "보고간소화", "회의결론", "자료작성"];
+const AVG_KEY = "__avg__";
+
+const state = {
+  quarters: {},     // { "<분기명>": [ {dept_name, response_rate, scores:{문항:점수}}, ... ] }
+  parentMap: {},     // { "<부서명>": "<상위 부서명>" } — 관리자가 지정한 산하 관계
+  quarterCurrent: null, // 메인(비교 대상) 분기 — 기본 "3Q"
+  quarterBaseline: null, // 기준(이전) 분기 — 기본 "1Q"
+  trendMetric: AVG_KEY,
+  trendTopN: 5,
+  rankQuarter: null,
+  rankMetric: QUESTION_KEYS[0],
+  rankTopN: 5,
+};
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* =========================================================
+   Data helpers
+   ========================================================= */
+function getQuarterLabels() {
+  return Object.keys(state.quarters).sort();
+}
+function allDeptNames() {
+  const names = new Set();
+  for (const q of Object.keys(state.quarters)) {
+    for (const r of state.quarters[q]) names.add(r.dept_name);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+function childrenOf(name) {
+  return allDeptNames().filter(n => state.parentMap[n] === name);
+}
+/** 자기 자신 + 모든 하위(재귀) 부서명. 순환 참조(관리자가 실수로 A->B->A로
+ * 지정하는 경우)가 생겨도 무한루프에 빠지지 않도록 방문한 노드를 추적합니다. */
+function descendantsOf(name) {
+  const result = [];
+  const visited = new Set();
+  (function visit(n) {
+    if (visited.has(n)) return;
+    visited.add(n);
+    result.push(n);
+    for (const c of childrenOf(n)) visit(c);
+  })(name);
+  return result;
+}
+/** 후보 상위 부서를 골랐을 때 순환이 생기는지 확인 — 드롭다운에서 그런
+ * 선택지를 아예 안 보이게 걸러내는 데 씀. */
+function wouldCreateCycle(childName, candidateParent) {
+  let cur = candidateParent;
+  const guard = new Set();
+  while (cur) {
+    if (cur === childName) return true;
+    if (guard.has(cur)) return false; // 이미 꼬인 기존 데이터 방어
+    guard.add(cur);
+    cur = state.parentMap[cur];
+  }
+  return false;
+}
+function topLevelNames() {
+  return allDeptNames().filter(n => !state.parentMap[n]);
+}
+function recordFor(quarter, name) {
+  return (state.quarters[quarter] || []).find(r => r.dept_name === name) || null;
+}
+/** rootName(및 그 산하 전체)의 한 분기 한 지표 평균값. 지표가 없는 하위
+ * 조직은 건너뛰고, 값이 하나도 없으면 null(= "데이터 없음", 화면엔 "-"). */
+function rollupValue(quarter, rootName, metricKey) {
+  const vals = [];
+  for (const name of descendantsOf(rootName)) {
+    const rec = recordFor(quarter, name);
+    if (!rec) continue;
+    const v = metricKey === "응답률" ? rec.response_rate : (rec.scores ? rec.scores[metricKey] : null);
+    if (typeof v === "number") vals.push(v);
+  }
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+function rollupAvgAcrossQuestions(quarter, rootName) {
+  const vals = QUESTION_KEYS.map(k => rollupValue(quarter, rootName, k)).filter(v => typeof v === "number");
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+function metricValue(quarter, rootName, metricKey) {
+  return metricKey === AVG_KEY ? rollupAvgAcrossQuestions(quarter, rootName) : rollupValue(quarter, rootName, metricKey);
+}
+
+/* =========================================================
+   File I/O
+   ========================================================= */
+function downloadJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+function readJsonFile(file, cb) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { cb(JSON.parse(reader.result)); }
+    catch (err) { alert("JSON 파일을 읽는 중 오류가 발생했습니다: " + err.message); }
+  };
+  reader.onerror = () => alert("파일을 읽지 못했습니다: " + (reader.error?.message || "알 수 없는 오류"));
+  reader.readAsText(file, "utf-8");
+}
+
+/* =========================================================
+   Admin: 산하 부서 설정
+   ========================================================= */
+function renderHierarchyAdmin() {
+  const el = document.getElementById("hierarchy-list");
+  const names = allDeptNames();
+  if (!names.length) {
+    el.innerHTML = `<div class="note-box">데이터를 먼저 불러오세요.</div>`;
+    return;
+  }
+  el.innerHTML = names.map(name => {
+    const options = names.filter(n => n !== name && !wouldCreateCycle(name, n))
+      .map(n => `<option value="${escapeHtml(n)}" ${state.parentMap[name] === n ? "selected" : ""}>${escapeHtml(n)}</option>`)
+      .join("");
+    return `<div class="admin-row">
+      <span class="label">${escapeHtml(name)}</span>
+      상위 부서: <select data-name="${escapeHtml(name)}">
+        <option value="">(없음 — 최상위)</option>
+        ${options}
+      </select>
+    </div>`;
+  }).join("");
+  el.querySelectorAll("select").forEach(sel => {
+    sel.addEventListener("change", (e) => {
+      const name = e.target.dataset.name;
+      if (e.target.value) state.parentMap[name] = e.target.value;
+      else delete state.parentMap[name];
+      document.getElementById("hierarchy-status").textContent = "저장되지 않은 변경사항 있음";
+      document.getElementById("hierarchy-status").className = "load-status";
+      renderAll();
+    });
+  });
+}
+
+/* =========================================================
+   메인 비교표
+   ========================================================= */
+function fmtScore(v) {
+  return typeof v === "number" ? v.toFixed(1) : "-";
+}
+function cellHtml(rootName, metricKey, isRate) {
+  const cur = metricValue(state.quarterCurrent, rootName, metricKey);
+  const base = metricValue(state.quarterBaseline, rootName, metricKey);
+  if (cur === null) return `<td>-</td>`;
+  const mainText = isRate ? (cur * 100).toFixed(1) + "%" : cur.toFixed(1);
+  if (base === null || state.quarterBaseline === state.quarterCurrent) {
+    return `<td><div class="cell-main">${mainText}</div></td>`;
+  }
+  const delta = isRate ? (cur - base) * 100 : cur - base;
+  const sign = delta >= 0 ? "+" : "";
+  const cls = delta >= 0 ? "up" : "down";
+  const deltaText = isRate ? `${sign}${delta.toFixed(1)}%p` : `${sign}${delta.toFixed(1)}`;
+  return `<td><div class="cell-main">${mainText}</div><div class="cell-delta ${cls}">(${deltaText})</div></td>`;
+}
+
+function renderMainTable() {
+  const quarters = getQuarterLabels();
+  const hintEl = document.getElementById("main-table-hint");
+  const toolbarEl = document.getElementById("main-table-toolbar");
+  const wrapEl = document.getElementById("main-table-wrap");
+
+  if (!quarters.length) {
+    hintEl.textContent = "";
+    toolbarEl.innerHTML = "";
+    wrapEl.innerHTML = `<div class="note-box">특화문항 데이터가 없습니다. 상단 "특화문항 데이터 불러오기"로 불러오면 여기에 표시됩니다.</div>`;
+    return;
+  }
+
+  if (!state.quarterCurrent || !quarters.includes(state.quarterCurrent)) {
+    state.quarterCurrent = quarters.includes("3Q") ? "3Q" : quarters[quarters.length - 1];
+  }
+  if (!state.quarterBaseline || !quarters.includes(state.quarterBaseline)) {
+    state.quarterBaseline = quarters.includes("1Q") ? "1Q" : quarters[0];
+  }
+
+  hintEl.innerHTML = `<strong>${escapeHtml(state.quarterCurrent)}</strong> 점수를 메인으로, `
+    + `<strong>${escapeHtml(state.quarterBaseline)}</strong> 대비 증감을 괄호 안에 보여줍니다. `
+    + `데이터가 없는 칸은 "-"로 표시됩니다.`;
+
+  toolbarEl.innerHTML = `
+    <label>메인(비교 대상) 분기 <select id="sel-quarter-current">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.quarterCurrent ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+    <label>기준(이전) 분기 <select id="sel-quarter-baseline">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.quarterBaseline ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+  `;
+
+  const names = topLevelNames();
+  if (!names.length) {
+    wrapEl.innerHTML = `<div class="note-box">표시할 조직이 없습니다.</div>`;
+    return;
+  }
+
+  const thead = `<thead><tr><th class="text-col">조직</th><th>응답률</th>${QUESTION_KEYS.map(k => `<th>${escapeHtml(k)}</th>`).join("")}</tr></thead>`;
+  const tbody = `<tbody>${names.map(name => {
+    const kids = childrenOf(name);
+    const nameCell = kids.length
+      ? `<td class="text-col">${escapeHtml(name)}<span class="org-children-note">산하: ${kids.map(escapeHtml).join(", ")} 평균 포함</span></td>`
+      : `<td class="text-col">${escapeHtml(name)}</td>`;
+    return `<tr>${nameCell}${cellHtml(name, "응답률", true)}${QUESTION_KEYS.map(k => cellHtml(name, k, false)).join("")}</tr>`;
+  }).join("")}</tbody>`;
+
+  wrapEl.innerHTML = `<div class="table-wrap"><table class="data-table">${thead}${tbody}</table></div>`;
+
+  bind("sel-quarter-current", "change", e => { state.quarterCurrent = e.target.value; renderAll(); });
+  bind("sel-quarter-baseline", "change", e => { state.quarterBaseline = e.target.value; renderAll(); });
+}
+
+/* =========================================================
+   분기 간 하락·상승 Top N
+   ========================================================= */
+function metricOptionsHtml(selected) {
+  return `<option value="${AVG_KEY}" ${selected === AVG_KEY ? "selected" : ""}>전체 평균</option>`
+    + QUESTION_KEYS.map(k => `<option value="${escapeHtml(k)}" ${selected === k ? "selected" : ""}>${escapeHtml(k)}</option>`).join("");
+}
+
+function renderTrendSection() {
+  const quarters = getQuarterLabels();
+  const toolbarEl = document.getElementById("trend-toolbar");
+  const contentEl = document.getElementById("trend-content");
+  if (!quarters.length) { toolbarEl.innerHTML = ""; contentEl.innerHTML = ""; return; }
+  if (quarters.length < 2) {
+    toolbarEl.innerHTML = "";
+    contentEl.innerHTML = `<div class="note-box">분기가 2개 이상 있어야 비교할 수 있습니다.</div>`;
+    return;
+  }
+
+  toolbarEl.innerHTML = `
+    <label>문항 <select id="sel-trend-metric">${metricOptionsHtml(state.trendMetric)}</select></label>
+    <label>Top N <input type="number" id="input-trend-topn" min="1" max="20" value="${state.trendTopN}" style="width:56px"></label>
+  `;
+
+  const names = topLevelNames();
+  const deltas = [];
+  for (const name of names) {
+    const cur = metricValue(state.quarterCurrent, name, state.trendMetric);
+    const base = metricValue(state.quarterBaseline, name, state.trendMetric);
+    if (cur === null || base === null) continue;
+    deltas.push({ name, cur, base, delta: cur - base });
+  }
+
+  if (!deltas.length) {
+    contentEl.innerHTML = `<div class="note-box">${escapeHtml(state.quarterBaseline)}, ${escapeHtml(state.quarterCurrent)} 두 분기 모두에 데이터가 있는 조직이 없습니다.</div>`;
+  } else {
+    const topN = state.trendTopN;
+    const declining = [...deltas].sort((a, b) => a.delta - b.delta).slice(0, topN);
+    const rising = [...deltas].sort((a, b) => b.delta - a.delta).slice(0, topN);
+    const line = d => `<li>${escapeHtml(d.name)}: ${d.base.toFixed(1)} → ${d.cur.toFixed(1)} `
+      + `<span class="${d.delta >= 0 ? "up" : "down"}">(${d.delta >= 0 ? "+" : ""}${d.delta.toFixed(1)})</span></li>`;
+    contentEl.innerHTML = `<div class="top-cols">
+      <div><div class="top-title">하락 Top${topN}</div><ul>${declining.map(line).join("")}</ul></div>
+      <div><div class="top-title">상승 Top${topN}</div><ul>${rising.map(line).join("")}</ul></div>
+    </div>`;
+  }
+
+  bind("sel-trend-metric", "change", e => { state.trendMetric = e.target.value; renderAll(); });
+  bind("input-trend-topn", "change", e => {
+    const n = parseInt(e.target.value, 10);
+    state.trendTopN = (Number.isFinite(n) && n > 0) ? n : 5;
+    renderAll();
+  });
+}
+
+/* =========================================================
+   전체 조직 중 상위·하위 Top N
+   ========================================================= */
+function renderRankSection() {
+  const quarters = getQuarterLabels();
+  const toolbarEl = document.getElementById("rank-toolbar");
+  const contentEl = document.getElementById("rank-content");
+  if (!quarters.length) { toolbarEl.innerHTML = ""; contentEl.innerHTML = ""; return; }
+
+  if (!state.rankQuarter || !quarters.includes(state.rankQuarter)) {
+    state.rankQuarter = state.quarterCurrent || quarters[quarters.length - 1];
+  }
+
+  toolbarEl.innerHTML = `
+    <label>분기 <select id="sel-rank-quarter">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.rankQuarter ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+    <label>문항 <select id="sel-rank-metric">${metricOptionsHtml(state.rankMetric)}</select></label>
+    <label>Top N <input type="number" id="input-rank-topn" min="1" max="20" value="${state.rankTopN}" style="width:56px"></label>
+  `;
+
+  const names = topLevelNames();
+  const ranked = names
+    .map(name => ({ name, v: metricValue(state.rankQuarter, name, state.rankMetric) }))
+    .filter(r => r.v !== null)
+    .sort((a, b) => b.v - a.v);
+
+  if (!ranked.length) {
+    contentEl.innerHTML = `<div class="note-box">이 분기/문항에는 데이터가 있는 조직이 없습니다.</div>`;
+  } else {
+    const topN = state.rankTopN;
+    const top = ranked.slice(0, topN);
+    const bottom = ranked.slice(-topN).reverse();
+    contentEl.innerHTML = `<div class="top-cols">
+      <div><div class="top-title">상위 Top${topN}</div><ul>${top.map(r => `<li>${escapeHtml(r.name)}: ${r.v.toFixed(1)}</li>`).join("")}</ul></div>
+      <div><div class="top-title">하위 Top${topN}</div><ul>${bottom.map(r => `<li>${escapeHtml(r.name)}: ${r.v.toFixed(1)}</li>`).join("")}</ul></div>
+    </div>`;
+  }
+
+  bind("sel-rank-quarter", "change", e => { state.rankQuarter = e.target.value; renderAll(); });
+  bind("sel-rank-metric", "change", e => { state.rankMetric = e.target.value; renderAll(); });
+  bind("input-rank-topn", "change", e => {
+    const n = parseInt(e.target.value, 10);
+    state.rankTopN = (Number.isFinite(n) && n > 0) ? n : 5;
+    renderAll();
+  });
+}
+
+function bind(id, evt, handler) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener(evt, handler);
+}
+
+function renderAll() {
+  renderHierarchyAdmin();
+  renderMainTable();
+  renderTrendSection();
+  renderRankSection();
+}
+
+/* =========================================================
+   Wiring
+   ========================================================= */
+document.getElementById("btn-load-data").addEventListener("click", () => document.getElementById("file-data").click());
+document.getElementById("file-data").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("data-load-status");
+  readJsonFile(file, (json) => {
+    let quarters;
+    if (json && typeof json === "object" && !Array.isArray(json) && json.quarters) {
+      quarters = json.quarters;
+    } else if (Array.isArray(json)) {
+      quarters = { "전체": json };
+    } else {
+      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 — { "quarters": { "<분기명>": [...] } } 형태여야 합니다`;
+      statusEl.className = "load-status error";
+      return;
+    }
+    state.quarters = quarters;
+    state.quarterCurrent = null;
+    state.quarterBaseline = null;
+    state.rankQuarter = null;
+    const quarterNames = Object.keys(quarters);
+    statusEl.textContent = `"${file.name}" 불러옴 (분기 ${quarterNames.length}개: ${quarterNames.join(", ")})`;
+    statusEl.className = "load-status ok";
+    renderAll();
+  });
+  e.target.value = "";
+});
+
+document.getElementById("btn-load-hierarchy").addEventListener("click", () => document.getElementById("file-hierarchy").click());
+document.getElementById("file-hierarchy").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("hierarchy-status");
+  readJsonFile(file, (json) => {
+    state.parentMap = json.parent_map || {};
+    statusEl.textContent = `"${file.name}" 불러옴`;
+    statusEl.className = "load-status ok";
+    renderAll();
+  });
+  e.target.value = "";
+});
+
+document.getElementById("btn-save-hierarchy").addEventListener("click", () => {
+  const payload = { parent_map: { ...state.parentMap }, saved_at: new Date().toISOString() };
+  downloadJson(payload, "customq_report_hierarchy.json");
+  const statusEl = document.getElementById("hierarchy-status");
+  statusEl.textContent = "customq_report_hierarchy.json 저장됨";
+  statusEl.className = "load-status ok";
+});
+
+renderAll();
+</script>
+</body>
+</html>

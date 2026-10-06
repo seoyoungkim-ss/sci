@@ -14,13 +14,18 @@ scripts/xlwings_loader.py   DRM 엑셀 4번째 시트 -> JSON 변환 (실 데이
 scripts/segment_loader.py   DRM 엑셀의 부서별 "문항별 결과" 시트 -> 세그먼트 JSON 변환 (실 데이터용)
 scripts/qualitative_loader.py  DRM 엑셀의 주관식(구분/부서명/내용) 표 -> 주관식 JSON 변환 (실 데이터용)
 scripts/custom_questions_loader.py  DRM 엑셀의 부서별 특화문항(조직 맞춤 객관식) 점수 표 ->
-                             data/custom_questions_data.json 변환 (실 데이터용, subjective_report.py가 사용)
+                             data/custom_questions_data.json 변환 (실 데이터용, subjective_report.py가 사용 +
+                             dashboard/index.html "전체 보고" 페이지의 "특화문항" 토글에서도 사용)
+scripts/customq_report_loader.py  dashboard/customq_report.html 전용의 더 단순한 특화문항 표(부서명/응답률/
+                             문항 8개만 있는, 조직 계층 없는 워크북) -> data/customq_report_data.json 변환
 scripts/xlwings_utils.py    위 로더들이 공유하는 Excel 연결 헬퍼 (DRM 복호화 우회용 open_or_attach())
 scripts/generate_dummy_segment_data.py  더미 세그먼트 데이터 생성
 data/dummy_survey_data.json 생성된 더미 부서별 설문 데이터
 data/org_map_2026Q2.json    샘플 "이전 회차" 조직 계층 JSON
 data/segment_data.json      생성된 더미 세그먼트(인구통계) 데이터
 dashboard/index.html        단일 HTML 대시보드 (조회모드 + 관리자모드)
+dashboard/customq_report.html  별도 독립 HTML — 특화문항 전체 비교 전용(조직 계층이 없는 데이터용,
+                             관리자가 화면에서 직접 산하 부서를 지정). index.html과 완전히 분리된 도구.
 ```
 
 ## 데이터 파이프라인
