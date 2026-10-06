@@ -75,7 +75,7 @@
   .admin-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .admin-row:last-child { border-bottom: none; }
   .admin-row .label { font-size: 13px; min-width: 160px; }
-  .admin-row select { padding: 4px 6px; font-size: 12.5px; }
+  .admin-row select, .admin-row input.parent-input { padding: 4px 6px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; min-width: 220px; }
 
   .top-cols { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 10px; }
   .top-cols > div { flex: 1; min-width: 260px; }
@@ -336,27 +336,38 @@ function renderHierarchyAdmin() {
     el.innerHTML = `<div class="note-box">데이터를 먼저 불러오세요.</div>`;
     return;
   }
-  // 알파벳순 평면 목록이 아니라 비교표와 같은 트리 순서(들여쓰기)로 보여줘서,
-  // 드롭다운에서 상위 부서를 바꾸면 그 부서가 바로 새 위치로 "이동"하는 게
-  // 눈에 보이게 함 — 어디로 옮겨졌는지 매번 평면 목록을 훑어보지 않아도 됨.
-  el.innerHTML = orderedTreeRows().map(({ name, depth }) => {
-    const options = names.filter(n => n !== name && !wouldCreateCycle(name, n))
-      .map(n => `<option value="${escapeHtml(n)}" ${state.parentMap[name] === n ? "selected" : ""}>${escapeHtml(n)}</option>`)
-      .join("");
+  // 부서 수가 많으면 <select>를 매번 스크롤해서 찾는 게 불편하다는 피드백으로,
+  // 일반 드롭다운 대신 "입력하면서 걸러지는" datalist 콤보박스로 바꿈 — 타이핑
+  // 몇 글자만 치면 바로 후보가 좁혀짐(네이티브 브라우저 기능이라 별도 라이브러리
+  // 불필요). 모든 행이 하나의 공용 <datalist>를 공유하므로(행마다 옵션을 다시
+  // 안 만들어서 가벼움), 자기 자신/순환 참조 같은 걸러내기는 옵션 목록에서
+  // 미리 빼는 대신 입력을 확정(change)하는 시점에 검증해서 알려줌.
+  // 비교표와 같은 트리 순서(들여쓰기)로 보여줘서, 상위 부서를 바꾸면 그 부서가
+  // 바로 새 위치로 "이동"하는 게 눈에 보이게 함.
+  const datalistHtml = `<datalist id="dept-name-datalist">${names.map(n => `<option value="${escapeHtml(n)}">`).join("")}</datalist>`;
+  const rowsHtml = orderedTreeRows().map(({ name, depth }) => {
     const indent = "　".repeat(depth) + (depth > 0 ? "└ " : "");
+    const currentParent = state.parentMap[name] || "";
     return `<div class="admin-row">
       <span class="label">${indent}${escapeHtml(name)}</span>
-      상위 부서: <select data-name="${escapeHtml(name)}">
-        <option value="">(없음 — 최상위)</option>
-        ${options}
-      </select>
+      상위 부서: <input type="text" list="dept-name-datalist" class="parent-input"
+        data-name="${escapeHtml(name)}" value="${escapeHtml(currentParent)}"
+        placeholder="입력해서 검색 (비우면 최상위)">
     </div>`;
   }).join("");
-  el.querySelectorAll("select").forEach(sel => {
-    sel.addEventListener("change", (e) => {
+  el.innerHTML = datalistHtml + rowsHtml;
+
+  const nameSet = new Set(names);
+  el.querySelectorAll(".parent-input").forEach(input => {
+    input.addEventListener("change", (e) => {
       const name = e.target.dataset.name;
-      if (e.target.value) state.parentMap[name] = e.target.value;
-      else delete state.parentMap[name];
+      const value = e.target.value.trim();
+      const revert = () => { e.target.value = state.parentMap[name] || ""; };
+      if (!value) { delete state.parentMap[name]; }
+      else if (!nameSet.has(value)) { alert(`"${value}"은(는) 목록에 없는 부서명입니다.`); revert(); return; }
+      else if (value === name) { alert("자기 자신을 상위 부서로 지정할 수 없습니다."); revert(); return; }
+      else if (wouldCreateCycle(name, value)) { alert("이 조합은 순환 참조(A의 상위가 결국 A 자신)가 됩니다."); revert(); return; }
+      else { state.parentMap[name] = value; }
       document.getElementById("hierarchy-status").textContent = "저장되지 않은 변경사항 있음";
       document.getElementById("hierarchy-status").className = "load-status";
       renderAll();
