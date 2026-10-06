@@ -79,10 +79,12 @@
   .admin-row select, .admin-row input.parent-input { padding: 4px 6px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; min-width: 220px; }
 
   .order-chip-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
-  .order-chip { display: flex; align-items: center; gap: 4px; background: var(--navy-100); border-radius: 6px; padding: 4px 6px 4px 10px; font-size: 13px; }
+  .order-chip { display: flex; align-items: center; gap: 4px; background: var(--navy-100); border-radius: 6px; padding: 4px 6px 4px 10px; font-size: 13px; cursor: grab; border: 2px solid transparent; transition: border-color 0.1s, opacity 0.1s; }
   .order-chip button { border: none; background: none; cursor: pointer; font-size: 13px; padding: 2px 5px; color: var(--muted); }
   .order-chip button:disabled { opacity: 0.3; cursor: default; }
   .order-chip button:hover:not(:disabled) { color: var(--navy-900); }
+  .order-chip.dragging { opacity: 0.4; cursor: grabbing; }
+  .order-chip.drag-over { border-color: var(--coral); }
 
   .top-cols { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 10px; }
   .top-cols > div { flex: 1; min-width: 260px; }
@@ -442,26 +444,62 @@ function renderOrderChips() {
     return;
   }
   el.innerHTML = `<div class="order-chip-row">` + top.map((name, i) => `
-    <span class="order-chip">
+    <span class="order-chip" draggable="true" data-idx="${i}">
       <button class="order-move-left" data-idx="${i}" ${i === 0 ? "disabled" : ""} title="앞으로">◀</button>
       ${escapeHtml(name)}
       <button class="order-move-right" data-idx="${i}" ${i === top.length - 1 ? "disabled" : ""} title="뒤로">▶</button>
     </span>`).join("") + `</div>`;
 
-  const moveOrg = (idx, delta) => {
-    const order = [...top];
-    const newIdx = idx + delta;
-    if (newIdx < 0 || newIdx >= order.length) return;
-    [order[idx], order[newIdx]] = [order[newIdx], order[idx]];
+  const applyOrder = (order) => {
     state.topLevelOrder = order;
     document.getElementById("hierarchy-status").textContent = "저장되지 않은 변경사항 있음";
     document.getElementById("hierarchy-status").className = "load-status";
     renderAll();
   };
+  const moveOrg = (idx, delta) => {
+    const order = [...top];
+    const newIdx = idx + delta;
+    if (newIdx < 0 || newIdx >= order.length) return;
+    [order[idx], order[newIdx]] = [order[newIdx], order[idx]];
+    applyOrder(order);
+  };
   el.querySelectorAll(".order-move-left").forEach(btn =>
     btn.addEventListener("click", (e) => moveOrg(Number(e.target.dataset.idx), -1)));
   el.querySelectorAll(".order-move-right").forEach(btn =>
     btn.addEventListener("click", (e) => moveOrg(Number(e.target.dataset.idx), 1)));
+
+  // ---- 드래그로 순서 바꾸기 (좌우 화살표는 그대로 유지 — 드래그가 안 되는
+  // 환경/취향을 위한 대체 수단) ----
+  let dragFromIdx = null;
+  el.querySelectorAll(".order-chip").forEach(chip => {
+    chip.addEventListener("dragstart", (e) => {
+      dragFromIdx = Number(chip.dataset.idx);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(dragFromIdx)); // Firefox requires real data to start a drag
+      chip.classList.add("dragging");
+    });
+    chip.addEventListener("dragend", () => {
+      chip.classList.remove("dragging");
+      el.querySelectorAll(".order-chip").forEach(c => c.classList.remove("drag-over"));
+    });
+    chip.addEventListener("dragover", (e) => {
+      e.preventDefault(); // 허용해야 drop 이벤트가 발생함
+      e.dataTransfer.dropEffect = "move";
+      chip.classList.add("drag-over");
+    });
+    chip.addEventListener("dragleave", () => chip.classList.remove("drag-over"));
+    chip.addEventListener("drop", (e) => {
+      e.preventDefault();
+      chip.classList.remove("drag-over");
+      const dropIdx = Number(chip.dataset.idx);
+      if (dragFromIdx === null || dragFromIdx === dropIdx) return;
+      const order = [...top];
+      const [moved] = order.splice(dragFromIdx, 1);
+      order.splice(dropIdx, 0, moved);
+      dragFromIdx = null;
+      applyOrder(order);
+    });
+  });
 }
 
 /* =========================================================
