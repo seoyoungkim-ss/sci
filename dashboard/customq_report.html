@@ -112,12 +112,21 @@
   .trend-tooltip-key { width: 12px; height: 2px; border-radius: 1px; display: inline-block; flex-shrink: 0; }
   .trend-tooltip-name { color: var(--muted); flex: 1; }
   .trend-tooltip-value { font-weight: 700; color: var(--text); }
-  .trend-legend-row { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; }
-  .trend-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text); }
+  .trend-legend-row { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; }
+  .trend-legend-item {
+    display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text);
+    background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 7px;
+    cursor: pointer; font-family: inherit;
+  }
+  .trend-legend-item:hover { background: var(--navy-100); }
+  .trend-legend-item.is-hidden { color: var(--muted); text-decoration: line-through; }
   .trend-legend-swatch { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
   .trend-table-details { margin-top: 10px; font-size: 12px; }
   .trend-table-details summary { cursor: pointer; color: var(--muted); }
   .trend-table-details .table-wrap { margin-top: 8px; }
+  .trend-global-toolbar { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+  .trend-global-toolbar a { color: var(--navy-700); font-weight: 600; cursor: pointer; }
+  .trend-global-toolbar a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -187,7 +196,7 @@
   <div class="panel">
     <div class="panel-title">조직별 분기 추이 (레벨3)</div>
     <div class="panel-hint">산하 부서 설정에서 최상위 → 상위 → 그 다음, 이렇게 3단계로 지정된 조직(레벨3)마다 문항(영역)별 점수가 분기에 따라 어떻게 바뀌었는지 보여줍니다.</div>
-    <div id="level3-trend-content" class="trend-grid"></div>
+    <div id="level3-trend-content"></div>
   </div>
 
 </main>
@@ -217,6 +226,13 @@ const state = {
   rankQuarter: null,
   rankMetric: QUESTION_KEYS[0],
   rankTopN: 5,
+  // "레벨3 조직별 분기 추이" 차트에서 끈 문항(영역) 집합 — 8개를 한 번에
+  // 보여주면 정신없다는 피드백으로 범례를 토글 버튼으로 바꿈. 모든
+  // 레벨3 차트가 이 하나의 집합을 공유해서, 한 차트에서 끄면 다른
+  // 조직의 차트에서도 똑같이 꺼짐(같은 문항은 어디서나 같은 식별자라는
+  // 원칙 — dataviz 스킬의 "색은 항목을 따르지, 그 항목이 몇 번째인지를
+  // 따르지 않는다"와 같은 이유).
+  level3TrendHiddenKeys: new Set(),
 };
 
 function escapeHtml(s) {
@@ -879,21 +895,34 @@ function niceAxisDomain(values) {
  * 같은 값을 볼 수 있는 접이식 표(표 뷰)까지 — dataviz 스킬의 라인차트
  * 스펙(마크/범례/호버/표 트윈)을 그대로 따릅니다. */
 function renderAreaTrendChart(container, orgName, quarters) {
-  const seriesData = QUESTION_KEYS.map((key, i) => ({
+  const allSeriesData = QUESTION_KEYS.map((key, i) => ({
     key,
     color: TREND_CATEGORICAL_PALETTE[i],
     values: quarters.map(q => rollupValue(q, orgName, key)),
+    hidden: state.level3TrendHiddenKeys.has(key),
   }));
+  const seriesData = allSeriesData.filter(s => !s.hidden);
   const allValues = seriesData.flatMap(s => s.values).filter(v => typeof v === "number");
 
-  if (quarters.length < 2 || allValues.length < 2) {
+  if (quarters.length < 2 || allSeriesData.flatMap(s => s.values).filter(v => typeof v === "number").length < 2) {
     container.innerHTML = `<div class="chart-card">
       <div class="chart-card-title">${escapeHtml(orgName)}</div>
       <div class="note-box">분기가 2개 이상이고 데이터가 있어야 추이를 볼 수 있습니다.</div>
     </div>`;
     return;
   }
+  if (!seriesData.length) {
+    container.innerHTML = `<div class="chart-card">
+      <div class="chart-card-title">${escapeHtml(orgName)}</div>
+      <div class="note-box">표시 중인 문항이 없습니다 — 아래 범례에서 문항을 켜보세요.</div>
+      <div class="trend-legend-row">${buildTrendLegendHtml(allSeriesData)}</div>
+    </div>`;
+    bindTrendLegendClicks(container);
+    return;
+  }
 
+  // 끈 문항은 축/곡선 계산에서 아예 빠지므로, 남은 문항이 세로 공간을
+  // 꽉 채우도록 범위가 다시 좁혀집니다(숨긴 만큼 더 잘 보이게).
   const { min, max, ticks } = niceAxisDomain(allValues);
   const W = 560, H = 260;
   const pad = { top: 16, right: 16, bottom: 32, left: 38 };
@@ -930,11 +959,11 @@ function renderAreaTrendChart(container, orgName, quarters) {
     return `<rect class="trend-hit-col" tabindex="0" data-idx="${i}" x="${colX.toFixed(1)}" y="${pad.top}" width="${colW.toFixed(1)}" height="${plotH}" fill="transparent" />`;
   }).join("");
 
-  const legend = seriesData.map(s =>
-    `<span class="trend-legend-item"><span class="trend-legend-swatch" style="background:${s.color}"></span>${escapeHtml(s.key)}</span>`
-  ).join("");
+  const legend = buildTrendLegendHtml(allSeriesData);
 
-  const tableRows = seriesData.map(s =>
+  // 표 트윈은 범례에서 끈 문항도 포함해서 전부 보여줍니다(끄는 건 차트만
+  // 덜 복잡하게 보려는 것이지, 데이터 자체를 못 보게 막는 게 아님).
+  const tableRows = allSeriesData.map(s =>
     `<tr><td class="text-col">${escapeHtml(s.key)}</td>${s.values.map(v => `<td>${typeof v === "number" ? v.toFixed(1) : "-"}</td>`).join("")}</tr>`
   ).join("");
 
@@ -1005,6 +1034,30 @@ function renderAreaTrendChart(container, orgName, quarters) {
     col.addEventListener("focus", show);
     col.addEventListener("blur", hide);
   });
+  bindTrendLegendClicks(container);
+}
+
+/** 범례를 "끈 문항도 계속 보이되 흐리게" 그립니다 — 완전히 없애버리면
+ * 다시 켤 방법이 없어지므로, 항상 8개 다 떠 있고 상태만 다릅니다. */
+function buildTrendLegendHtml(allSeriesData) {
+  return allSeriesData.map(s => `
+    <button type="button" class="trend-legend-item ${s.hidden ? "is-hidden" : ""}" data-key="${escapeHtml(s.key)}" aria-pressed="${!s.hidden}">
+      <span class="trend-legend-swatch" style="background:${s.hidden ? "#c3c2b7" : s.color}"></span>${escapeHtml(s.key)}
+    </button>`).join("");
+}
+
+/** 범례 버튼 클릭 -> 공유 상태(state.level3TrendHiddenKeys) 토글 ->
+ * 레벨3 차트 전체 다시 그림(같은 문항은 모든 조직 카드에서 같은 상태를
+ * 보여줘야 하므로 이 차트 하나만 다시 그리지 않음). */
+function bindTrendLegendClicks(container) {
+  container.querySelectorAll(".trend-legend-item").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.key;
+      if (state.level3TrendHiddenKeys.has(key)) state.level3TrendHiddenKeys.delete(key);
+      else state.level3TrendHiddenKeys.add(key);
+      renderLevel3TrendSection();
+    });
+  });
 }
 
 function renderLevel3TrendSection() {
@@ -1019,11 +1072,29 @@ function renderLevel3TrendSection() {
     return;
   }
   const quarters = getQuarterLabels();
-  container.innerHTML = "";
+  container.innerHTML = `
+    <div class="trend-global-toolbar">
+      <span>문항 표시:</span>
+      <a href="#" id="trend-show-all">전체 보기</a> · <a href="#" id="trend-hide-all">전체 끄기</a>
+    </div>
+    <div class="trend-grid" id="trend-cards-grid"></div>
+  `;
+  const grid = document.getElementById("trend-cards-grid");
   names.forEach(name => {
     const slot = document.createElement("div");
-    container.appendChild(slot);
+    grid.appendChild(slot);
     renderAreaTrendChart(slot, name, quarters);
+  });
+
+  document.getElementById("trend-show-all").addEventListener("click", (e) => {
+    e.preventDefault();
+    state.level3TrendHiddenKeys.clear();
+    renderLevel3TrendSection();
+  });
+  document.getElementById("trend-hide-all").addEventListener("click", (e) => {
+    e.preventDefault();
+    QUESTION_KEYS.forEach(k => state.level3TrendHiddenKeys.add(k));
+    renderLevel3TrendSection();
   });
 }
 
