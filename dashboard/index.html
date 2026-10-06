@@ -438,6 +438,10 @@
   #report-highlight-checks { flex-direction: column; flex-wrap: nowrap; gap: 6px; }
   .highlight-row { display: flex; align-items: center; gap: 6px; }
   .hl-n-input { width: 52px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; text-align: center; }
+  .report-view-toggle { display: flex; gap: 6px; }
+  .report-view-btn { background: var(--paper); color: var(--navy-800); border: 1px solid var(--border); }
+  .report-view-btn:hover { background: var(--navy-100); }
+  .report-view-btn.active { background: var(--navy-900); color: #fff; border-color: var(--navy-900); }
   .report-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
   table.report-table { border-collapse: collapse; font-size: 11.5px; white-space: nowrap; }
   table.report-table th, table.report-table td { padding: 6px 9px; border: 1px solid var(--border); text-align: right; }
@@ -542,7 +546,6 @@
         <button class="tab-btn" data-tab="variance">조직편차</button>
         <button class="tab-btn" data-tab="segment">세그먼트비교</button>
         <button class="tab-btn" data-tab="qualitative">주관식분석</button>
-        <button class="tab-btn" data-tab="customq">특화문항</button>
       </div>
       <div id="tab-content"></div>
     </div>
@@ -638,9 +641,15 @@
   <div id="report-mode" hidden>
     <div class="report-panel">
       <div class="report-toolbar">
+        <div class="report-view-toggle">
+          <button class="btn report-view-btn active" id="btn-report-view-main">3대영역(기존 문항)</button>
+          <button class="btn report-view-btn" id="btn-report-view-customq">특화문항</button>
+        </div>
         <button class="btn coral" id="btn-copy-report">표 전체 복사 (엑셀·워드용)</button>
         <span id="report-copy-status"></span>
       </div>
+
+      <div id="report-view-main">
       <div class="report-hint">모든 조직(전사~최하위 부서)과 부서장 정보를 한 표에 담았습니다. 아래 체크박스로 원하는 레벨·항목만 바로 골라서 보고, "표 전체 복사"로 엑셀/워드에 Ctrl+V 붙여넣으세요.</div>
       <div class="report-filters" id="report-filters">
         <div class="filter-group">
@@ -661,6 +670,11 @@
         </div>
       </div>
       <div id="report-table-wrap" class="report-table-wrap"></div>
+      </div>
+
+      <div id="report-view-customq" hidden>
+        <div id="report-customq-content"></div>
+      </div>
     </div>
   </div>
 
@@ -2661,14 +2675,14 @@ const state = {
   // 새 분기는 getCustomQuestionQuarters()가 알파벳순으로 뒤에 붙여줌.
   customQuestionQuarterOrder: [],
   customQuestionTopN: 5,           // 하락/상승 및 상위/하위 TopN 표시 개수(사용자가 조정 가능)
-  customQuestionSelectedQuarter: null, // "특화문항" 탭 상단 섹션에서 보고 있는 분기
-  customQuestionQuarterA: null,    // 하락/상승 비교의 기준 분기
-  customQuestionQuarterB: null,    // 하락/상승 비교의 대상 분기
-  customQuestionRankQuarter: null, // 전체 조직 랭킹 대상 분기
-  customQuestionRankQuestion: null, // 전체 조직 랭킹에 쓸 원본 문항 문구
+  customQuestionQuarterA: null,    // 하락/상승 비교의 기준(이전) 분기
+  customQuestionQuarterB: null,    // 하락/상승 비교의 대상(현재) 분기
+  customQuestionRankQuarter: null, // 레벨2 조직 랭킹 대상 분기
+  customQuestionRankQuestion: null, // 레벨2 조직 랭킹에 쓸 원본 문항 문구
   expandedTreeNodes: new Set(),
   dragCode: null,
   report: {
+    view: "main", // "main"(3대영역, 기존 문항) | "customq"(특화문항) — 전체보고 페이지 상단 토글
     columns: { hierarchy: true, code: true, leader: true, headcount: true, area: true, areaYoy: true, item: true, question: false },
     levels: null, // lazily filled with every level found in the data (null = not yet initialized)
     highlight: {
@@ -4575,80 +4589,94 @@ function collectUnmatchedCustomQuestionOrgs() {
   return rows;
 }
 
-function renderCustomQuestionsTab(container, data) {
+/** 레벨2(본부급) 조직 코드 목록. "조직간 비교는 레벨2끼리"라는 요건대로
+ * 특화문항 전체 비교는 전부 이 목록을 기준으로 함 — 조직도 상 형제 순서
+ * (state.orgOrder)를 그대로 따름(이름순 아님, 다른 표와 동일한 관례). */
+function level2OrgCodes() {
+  const codes = Object.keys(state.recordsByCode).filter(c => state.recordsByCode[c].dept_level === 2);
+  const pos = orderIndexMap();
+  return codes.sort((a, b) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity));
+}
+
+/** "전체보고" 페이지의 특화문항 토글 뷰 — 부서별 조회 화면과 무관하게
+ * 항상 전체 레벨2 조직을 한 표에 놓고 비교합니다(기존 "3대영역" 표와
+ * 같은 자리, btn-report-view-customq 클릭 시 전환). 표의 각 칸은 "이전
+ * 데이터와 매칭 가능할 경우 그 값과 비교"하고, 매칭이 안 되면(표준 문항
+ * 미지정, 그 분기에 해당 문항 없음 등) 현재 값만 보여주거나 "-"로
+ * 표시합니다 — 둘 다 정상 상태이지 에러가 아닙니다. */
+function renderCustomQuestionsReportView(container) {
   const quarters = getCustomQuestionQuarters();
   if (!quarters.length) {
-    container.innerHTML = `<div class="tab-panel-desc">조직별 특화문항(맞춤 객관식 문항) 점수를 분기별로 비교합니다.</div>
+    container.innerHTML = `<div class="report-hint">전체 조직(레벨2 기준)의 특화문항 점수를 분기별로 비교합니다.</div>
       <div class="note-box">특화문항 데이터가 없습니다. 상단 "특화문항 데이터 불러오기"로 불러오면 여기에 표시됩니다.</div>`;
     return;
   }
-
-  if (!state.customQuestionSelectedQuarter || !quarters.includes(state.customQuestionSelectedQuarter)) {
-    state.customQuestionSelectedQuarter = quarters[quarters.length - 1];
-  }
-  const scopeCodes = new Set(collectSelfAndDescendantCodes(state.selectedCode));
-
-  let html = `<div class="tab-panel-desc">"${escapeHtml(data.dept_name)}"(하위 조직 포함)의 특화문항 점수입니다. `
-    + `분기마다 문항 문구나 조직 구성이 다를 수 있어, 분기 간 하락/상승 비교는 관리자 모드 `
-    + `"특화문항 매칭"에서 표준 문항으로 묶어둬야 정확합니다(같은 분기 안에서의 조직 랭킹은 매칭 없이도 됩니다).</div>`;
-
-  // ---- A. 현재 조직의 분기별 원본 점수 ----
-  html += `<div class="section-title">${escapeHtml(data.dept_name)} 특화문항 점수</div>`;
-  html += `<div class="segment-select-row"><label>분기 <select id="cq-quarter-select">`
-    + quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.customQuestionSelectedQuarter ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")
-    + `</select></label></div>`;
-
-  const scopedRecordsA = customQuestionRecordsInScope(state.customQuestionSelectedQuarter, scopeCodes);
-  if (!scopedRecordsA.length) {
-    html += `<div class="note-box">이 분기(${escapeHtml(state.customQuestionSelectedQuarter)})에는 `
-      + `"${escapeHtml(data.dept_name)}"(하위 조직 포함)에 해당하는 데이터가 없습니다.</div>`;
-  } else {
-    const labels = allRawQuestionLabelsInQuarter(state.customQuestionSelectedQuarter);
-    const bars = labels.map(label => ({ label, value: averageRawQuestionScore(scopedRecordsA, label) || 0 }));
-    html += chartBlockHtml(
-      renderBarChartSVG(bars, { width: 640, barHeight: 22, gap: 8, labelWidth: 220, formatValue: v => v.toFixed(1) }),
-      `특화문항_${data.dept_name}_${state.customQuestionSelectedQuarter}`);
+  const level2Codes = level2OrgCodes();
+  if (!level2Codes.length) {
+    container.innerHTML = `<div class="note-box">레벨2 조직이 없습니다(부서 데이터 불러오기 후 다시 확인하세요).</div>`;
+    return;
   }
 
-  // ---- B. 분기 간 하락·상승 TopN (표준 문항 매칭 필요) ----
+  if (!state.customQuestionQuarterA || !quarters.includes(state.customQuestionQuarterA)) {
+    state.customQuestionQuarterA = quarters[Math.max(0, quarters.length - 2)];
+  }
+  if (!state.customQuestionQuarterB || !quarters.includes(state.customQuestionQuarterB)) {
+    state.customQuestionQuarterB = quarters[quarters.length - 1];
+  }
+  const quarterA = state.customQuestionQuarterA, quarterB = state.customQuestionQuarterB;
   const standardQuestions = Object.keys(state.customQuestionMapping);
-  html += `<div class="section-title">분기 간 하락·상승 Top${state.customQuestionTopN} (표준 문항 기준)</div>`;
-  if (quarters.length < 2) {
-    html += `<div class="note-box">분기가 2개 이상 있어야 비교할 수 있습니다.</div>`;
-  } else if (!standardQuestions.length) {
-    html += `<div class="note-box">표준 문항 매칭이 없습니다. 관리자 모드 "특화문항 매칭"에서 분기별 문항을 표준 문항으로 묶어주세요.</div>`;
-  } else {
-    if (!state.customQuestionQuarterA || !quarters.includes(state.customQuestionQuarterA)) {
-      state.customQuestionQuarterA = quarters[Math.max(0, quarters.length - 2)];
-    }
-    if (!state.customQuestionQuarterB || !quarters.includes(state.customQuestionQuarterB)) {
-      state.customQuestionQuarterB = quarters[quarters.length - 1];
-    }
-    html += `<div class="segment-select-row">
-      <label>기준 분기 <select id="cq-quarter-a-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.customQuestionQuarterA ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
-      <label>비교 분기 <select id="cq-quarter-b-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.customQuestionQuarterB ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
-      <label>TopN <input type="number" id="cq-topn-input" min="1" max="20" value="${state.customQuestionTopN}" style="width:56px"></label>
-    </div>`;
+  const topN = state.customQuestionTopN;
 
-    const recsA = customQuestionRecordsInScope(state.customQuestionQuarterA, scopeCodes);
-    const recsB = customQuestionRecordsInScope(state.customQuestionQuarterB, scopeCodes);
-    const deltas = [];
-    for (const sq of standardQuestions) {
-      const labelA = (state.customQuestionMapping[sq] || {})[state.customQuestionQuarterA];
-      const labelB = (state.customQuestionMapping[sq] || {})[state.customQuestionQuarterB];
-      if (!labelA || !labelB) continue;
-      const avgA = averageRawQuestionScore(recsA, labelA);
-      const avgB = averageRawQuestionScore(recsB, labelB);
-      if (avgA === null || avgB === null) continue;
-      deltas.push({ sq, avgA, avgB, delta: avgB - avgA });
-    }
-    if (!deltas.length) {
-      html += `<div class="note-box">두 분기 모두에 매칭되고 데이터가 있는 표준 문항이 없습니다.</div>`;
+  let html = `<div class="report-hint">레벨2(본부급) 조직 전체의 특화문항 점수입니다. 분기마다 문항 문구나 조직 구성이 `
+    + `다를 수 있어, 관리자 모드 "특화문항 매칭"에서 표준 문항으로 묶어둬야 분기 비교가 정확합니다 — `
+    + `매칭이 안 된 칸은 현재 값만 보여주거나 "-"로 표시됩니다(정상 동작).</div>`;
+
+  html += `<div class="report-toolbar">
+    <label>기준 분기(이전) <select id="cq2-quarter-a-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === quarterA ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+    <label>비교 분기(현재) <select id="cq2-quarter-b-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === quarterB ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+    <label>TopN <input type="number" id="cq2-topn-input" min="1" max="20" value="${topN}" style="width:56px"></label>
+  </div>`;
+
+  const deltaCells = [];
+  if (!standardQuestions.length) {
+    html += `<div class="note-box">표준 문항이 없습니다. 관리자 모드 "특화문항 매칭"에서 추가하세요.</div>`;
+  } else {
+    // ---- A. 레벨2 조직 x 표준 문항 비교표 (전체보고 표와 같은 스타일) ----
+    const rows = level2Codes.map(code => {
+      const rec = state.recordsByCode[code];
+      const scope = new Set(collectSelfAndDescendantCodes(code));
+      const recsA = customQuestionRecordsInScope(quarterA, scope);
+      const recsB = customQuestionRecordsInScope(quarterB, scope);
+      const cells = standardQuestions.map(sq => {
+        const labelA = (state.customQuestionMapping[sq] || {})[quarterA];
+        const labelB = (state.customQuestionMapping[sq] || {})[quarterB];
+        const avgB = labelB ? averageRawQuestionScore(recsB, labelB) : null;
+        const avgA = labelA ? averageRawQuestionScore(recsA, labelA) : null;
+        if (avgB !== null && avgA !== null) {
+          deltaCells.push({ name: rec.dept_name, sq, avgA, avgB, delta: avgB - avgA });
+        }
+        return { avgA, avgB };
+      });
+      return { name: rec.dept_name, cells };
+    });
+
+    const thead = `<thead><tr><th class="text-col">조직</th>${standardQuestions.map(sq => `<th>${escapeHtml(sq)}</th>`).join("")}</tr></thead>`;
+    const tbody = `<tbody>${rows.map(r => `<tr><td class="text-col">${escapeHtml(r.name)}</td>${r.cells.map(c => {
+      if (c.avgB === null) return `<td>-</td>`;
+      if (c.avgA === null) return `<td>${c.avgB.toFixed(1)}</td>`;
+      const delta = c.avgB - c.avgA;
+      return `<td>${c.avgB.toFixed(1)} <span class="${delta >= 0 ? "cq-up" : "cq-down"}">(${delta >= 0 ? "+" : ""}${delta.toFixed(1)})</span></td>`;
+    }).join("")}</tr>`).join("")}</tbody>`;
+    html += `<div class="report-table-wrap"><table class="report-table" id="report-customq-table">${thead}${tbody}</table></div>`;
+
+    // ---- B. 분기 간 하락·상승 TopN (레벨2 조직 x 표준 문항 조합 전체) ----
+    html += `<div class="section-title">${escapeHtml(quarterA)} → ${escapeHtml(quarterB)} 하락·상승 Top${topN} (레벨2 조직 × 표준 문항)</div>`;
+    if (!deltaCells.length) {
+      html += `<div class="note-box">두 분기 모두에 매칭되고 데이터가 있는 조직×표준 문항 조합이 없습니다.</div>`;
     } else {
-      const topN = state.customQuestionTopN;
-      const declining = [...deltas].sort((a, b) => a.delta - b.delta).slice(0, topN);
-      const rising = [...deltas].sort((a, b) => b.delta - a.delta).slice(0, topN);
-      const line = d => `<li>${escapeHtml(d.sq)}: ${d.avgA.toFixed(1)} → ${d.avgB.toFixed(1)} `
+      const declining = [...deltaCells].sort((a, b) => a.delta - b.delta).slice(0, topN);
+      const rising = [...deltaCells].sort((a, b) => b.delta - a.delta).slice(0, topN);
+      const line = d => `<li>${escapeHtml(d.name)} · ${escapeHtml(d.sq)}: ${d.avgA.toFixed(1)} → ${d.avgB.toFixed(1)} `
         + `<span class="${d.delta >= 0 ? "cq-up" : "cq-down"}">(${d.delta >= 0 ? "+" : ""}${d.delta.toFixed(1)})</span></li>`;
       html += `<div class="ai-top-cols">
         <div><div class="ai-top-title">하락 Top${topN}</div><ul>${declining.map(line).join("")}</ul></div>
@@ -4657,29 +4685,31 @@ function renderCustomQuestionsTab(container, data) {
     }
   }
 
-  // ---- C. 전체 조직 중 상위·하위 TopN (분기 내 원본 문항 기준 — 매칭 불필요) ----
-  html += `<div class="section-title">전체 조직 중 상위·하위 Top${state.customQuestionTopN}</div>`;
+  // ---- C. 분기 내 레벨2 조직 상위·하위 TopN (매칭 불필요, 원본 문항 기준) ----
   const rankQuarter = (state.customQuestionRankQuarter && quarters.includes(state.customQuestionRankQuarter))
     ? state.customQuestionRankQuarter : quarters[quarters.length - 1];
   state.customQuestionRankQuarter = rankQuarter;
   const rankLabels = allRawQuestionLabelsInQuarter(rankQuarter);
+  html += `<div class="section-title">${escapeHtml(rankQuarter)} 레벨2 조직 상위·하위 Top${topN}</div>`;
   if (!rankLabels.length) {
     html += `<div class="note-box">이 분기에는 문항 데이터가 없습니다.</div>`;
   } else {
     if (!state.customQuestionRankQuestion || !rankLabels.includes(state.customQuestionRankQuestion)) {
       state.customQuestionRankQuestion = rankLabels[0];
     }
-    html += `<div class="segment-select-row">
-      <label>분기 <select id="cq-rank-quarter-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === rankQuarter ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
-      <label>문항 <select id="cq-rank-question-select">${rankLabels.map(l => `<option value="${escapeHtml(l)}" ${l === state.customQuestionRankQuestion ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>
+    html += `<div class="report-toolbar">
+      <label>분기 <select id="cq2-rank-quarter-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === rankQuarter ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+      <label>문항 <select id="cq2-rank-question-select">${rankLabels.map(l => `<option value="${escapeHtml(l)}" ${l === state.customQuestionRankQuestion ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>
     </div>`;
 
-    const allRecords = (state.customQuestionsByQuarter[rankQuarter] || [])
-      .filter(r => r.custom_questions && typeof r.custom_questions[state.customQuestionRankQuestion] === "number");
-    const ranked = allRecords
-      .map(r => ({ name: r.dept_name, score: r.custom_questions[state.customQuestionRankQuestion] }))
-      .sort((a, b) => b.score - a.score);
-    const topN = state.customQuestionTopN;
+    const ranked = level2Codes.map(code => {
+      const rec = state.recordsByCode[code];
+      const scope = new Set(collectSelfAndDescendantCodes(code));
+      const recs = customQuestionRecordsInScope(rankQuarter, scope);
+      const score = averageRawQuestionScore(recs, state.customQuestionRankQuestion);
+      return { name: rec.dept_name, score };
+    }).filter(r => r.score !== null).sort((a, b) => b.score - a.score);
+
     const top = ranked.slice(0, topN);
     const bottom = ranked.slice(-topN).reverse();
     html += `<div class="ai-top-cols">
@@ -4691,22 +4721,21 @@ function renderCustomQuestionsTab(container, data) {
   const unmatched = collectUnmatchedCustomQuestionOrgs();
   if (unmatched.length) {
     html += `<div class="note-box">관리자 매칭이 필요한 조직 ${unmatched.length}건이 있습니다 `
-      + `(관리자 모드 "특화문항 매칭"에서 처리) — 매칭 전까지는 이 조직들이 "조직별 집계"에서 빠집니다.</div>`;
+      + `(관리자 모드 "특화문항 매칭"에서 처리) — 매칭 전까지는 이 조직들이 레벨2 집계에서 빠질 수 있습니다.</div>`;
   }
 
   container.innerHTML = html;
 
   const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener("change", handler); };
-  bind("cq-quarter-select", e => { state.customQuestionSelectedQuarter = e.target.value; renderTabContent(); });
-  bind("cq-quarter-a-select", e => { state.customQuestionQuarterA = e.target.value; renderTabContent(); });
-  bind("cq-quarter-b-select", e => { state.customQuestionQuarterB = e.target.value; renderTabContent(); });
-  bind("cq-topn-input", e => {
+  bind("cq2-quarter-a-select", e => { state.customQuestionQuarterA = e.target.value; renderReportMode(); });
+  bind("cq2-quarter-b-select", e => { state.customQuestionQuarterB = e.target.value; renderReportMode(); });
+  bind("cq2-topn-input", e => {
     const n = parseInt(e.target.value, 10);
     state.customQuestionTopN = (Number.isFinite(n) && n > 0) ? n : 5;
-    renderTabContent();
+    renderReportMode();
   });
-  bind("cq-rank-quarter-select", e => { state.customQuestionRankQuarter = e.target.value; state.customQuestionRankQuestion = null; renderTabContent(); });
-  bind("cq-rank-question-select", e => { state.customQuestionRankQuestion = e.target.value; renderTabContent(); });
+  bind("cq2-rank-quarter-select", e => { state.customQuestionRankQuarter = e.target.value; state.customQuestionRankQuestion = null; renderReportMode(); });
+  bind("cq2-rank-question-select", e => { state.customQuestionRankQuestion = e.target.value; renderReportMode(); });
 }
 
 const TAB_RENDERERS = {
@@ -4718,7 +4747,6 @@ const TAB_RENDERERS = {
   variance: renderVarianceTab,
   segment: renderSegmentTab,
   qualitative: renderQualitativeTab,
-  customq: renderCustomQuestionsTab,
 };
 
 function renderTabContent() {
@@ -5288,6 +5316,15 @@ function renderReportFilters(availableLevels) {
 }
 
 function renderReportMode() {
+  document.getElementById("btn-report-view-main").classList.toggle("active", state.report.view === "main");
+  document.getElementById("btn-report-view-customq").classList.toggle("active", state.report.view === "customq");
+  document.getElementById("report-view-main").hidden = state.report.view !== "main";
+  document.getElementById("report-view-customq").hidden = state.report.view !== "customq";
+  if (state.report.view === "customq") {
+    renderCustomQuestionsReportView(document.getElementById("report-customq-content"));
+    return;
+  }
+
   const { rows: allRows } = buildReportRows();
   const availableLevels = [...new Set(allRows.map(r => r.rec.dept_level))].sort((a, b) => a - b);
   if (!state.report.levels) state.report.levels = new Set(availableLevels);
@@ -5330,7 +5367,7 @@ function tableToTsv(tableEl) {
 }
 
 async function copyReportTable() {
-  const table = document.getElementById("report-table");
+  const table = document.getElementById(state.report.view === "customq" ? "report-customq-table" : "report-table");
   const statusEl = document.getElementById("report-copy-status");
   if (!table) return;
   const html = `<table>${table.innerHTML}</table>`;
@@ -5425,6 +5462,8 @@ document.getElementById("btn-mode-report").addEventListener("click", () => setMo
 document.getElementById("btn-mode-summary").addEventListener("click", () => setMode("summary"));
 
 document.getElementById("btn-copy-report").addEventListener("click", copyReportTable);
+document.getElementById("btn-report-view-main").addEventListener("click", () => { state.report.view = "main"; renderReportMode(); });
+document.getElementById("btn-report-view-customq").addEventListener("click", () => { state.report.view = "customq"; renderReportMode(); });
 
 document.getElementById("report-filters").addEventListener("change", (e) => {
   const input = e.target.closest("input");
