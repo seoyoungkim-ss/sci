@@ -109,9 +109,9 @@
     <div class="panel-title">산하 부서 설정 (관리자)</div>
     <div class="panel-hint">
       이 데이터에는 조직 계층 정보가 없어서, 어떤 부서가 어떤 부서 산하인지 여기서 직접 지정합니다.
-      "상위 부서"를 지정하면 그 부서는 아래 비교표에서 독립된 행으로 나오지 않고, 상위 부서 점수에
-      (자기 자신 + 다른 산하 부서들과 함께) 평균으로 합산됩니다. 상위 부서를 지정하지 않은 부서만
-      표의 한 행이 됩니다.
+      모든 부서가 아래 표에 전부 행으로 나오되, "상위 부서"를 지정하면 그 상위 부서의 점수는
+      (자기 자신 + 모든 산하 부서) 평균으로 계산됩니다 — 산하 부서 자신의 행도 그대로 남아있고,
+      상위 부서 바로 아래 들여써서 보여줍니다.
     </div>
     <div id="hierarchy-list"></div>
   </div>
@@ -206,6 +206,24 @@ function wouldCreateCycle(childName, candidateParent) {
 }
 function topLevelNames() {
   return allDeptNames().filter(n => !state.parentMap[n]);
+}
+/** 표/랭킹에 실제로 올릴 전체 행 목록(최상위든 산하든 전부) — 트리 순서로
+ * 정렬: 최상위 부서 바로 다음에 그 산하 부서들이 들여쓰기 깊이와 함께
+ * 이어집니다. 산하로 지정된 부서도 "전체가 다 나와야" 하므로 더 이상
+ * 최상위만 보여주지 않습니다 — 산하 부서 설정은 각 행의 점수를 (그 부서
+ * 자신 + 그 아래 산하) 평균으로 계산하는 데만 쓰이고, 화면에서 행 자체를
+ * 숨기지는 않습니다. */
+function orderedTreeRows() {
+  const rows = [];
+  const visited = new Set();
+  function visit(name, depth) {
+    if (visited.has(name)) return; // 순환 참조 방어
+    visited.add(name);
+    rows.push({ name, depth });
+    for (const child of childrenOf(name).sort((a, b) => a.localeCompare(b))) visit(child, depth + 1);
+  }
+  for (const top of topLevelNames().sort((a, b) => a.localeCompare(b))) visit(top, 0);
+  return rows;
 }
 function recordFor(quarter, name) {
   return (state.quarters[quarter] || []).find(r => r.dept_name === name) || null;
@@ -337,18 +355,19 @@ function renderMainTable() {
     <label>기준(이전) 분기 <select id="sel-quarter-baseline">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.quarterBaseline ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
   `;
 
-  const names = topLevelNames();
-  if (!names.length) {
+  const treeRows = orderedTreeRows();
+  if (!treeRows.length) {
     wrapEl.innerHTML = `<div class="note-box">표시할 조직이 없습니다.</div>`;
     return;
   }
 
   const thead = `<thead><tr><th class="text-col">조직</th><th>응답률</th>${QUESTION_KEYS.map(k => `<th>${escapeHtml(k)}</th>`).join("")}</tr></thead>`;
-  const tbody = `<tbody>${names.map(name => {
-    const kids = childrenOf(name);
-    const nameCell = kids.length
-      ? `<td class="text-col">${escapeHtml(name)}<span class="org-children-note">산하: ${kids.map(escapeHtml).join(", ")} 평균 포함</span></td>`
-      : `<td class="text-col">${escapeHtml(name)}</td>`;
+  const tbody = `<tbody>${treeRows.map(({ name, depth }) => {
+    const hasKids = childrenOf(name).length > 0;
+    const indent = "　".repeat(depth) + (depth > 0 ? "└ " : "");
+    const nameCell = hasKids
+      ? `<td class="text-col">${indent}${escapeHtml(name)}<span class="org-children-note">산하 포함 평균</span></td>`
+      : `<td class="text-col">${indent}${escapeHtml(name)}</td>`;
     return `<tr>${nameCell}${cellHtml(name, "응답률", true)}${QUESTION_KEYS.map(k => cellHtml(name, k, false)).join("")}</tr>`;
   }).join("")}</tbody>`;
 
@@ -382,7 +401,7 @@ function renderTrendSection() {
     <label>Top N <input type="number" id="input-trend-topn" min="1" max="20" value="${state.trendTopN}" style="width:56px"></label>
   `;
 
-  const names = topLevelNames();
+  const names = allDeptNames();
   const deltas = [];
   for (const name of names) {
     const cur = metricValue(state.quarterCurrent, name, state.trendMetric);
@@ -432,7 +451,7 @@ function renderRankSection() {
     <label>Top N <input type="number" id="input-rank-topn" min="1" max="20" value="${state.rankTopN}" style="width:56px"></label>
   `;
 
-  const names = topLevelNames();
+  const names = allDeptNames();
   const ranked = names
     .map(name => ({ name, v: metricValue(state.rankQuarter, name, state.rankMetric) }))
     .filter(r => r.v !== null)
