@@ -124,6 +124,8 @@
   .trend-table-details { margin-top: 10px; font-size: 12px; }
   .trend-table-details summary { cursor: pointer; color: var(--muted); }
   .trend-table-details .table-wrap { margin-top: 8px; }
+  .trend-table-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .trend-copy-table-btn { font-size: 11px; padding: 3px 8px; }
   .trend-global-toolbar { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
   .trend-global-toolbar a { color: var(--navy-700); font-weight: 600; cursor: pointer; }
   .trend-global-toolbar a:hover { text-decoration: underline; }
@@ -472,14 +474,11 @@ function buildCopyFriendlyClone(table) {
   return clone;
 }
 
-async function copyMainTable() {
-  const table = document.getElementById("customq-main-table");
-  const statusEl = document.getElementById("main-table-copy-status");
-  if (!table) return;
-  const clone = buildCopyFriendlyClone(table);
-  const html = `<table>${clone.innerHTML}</table>`;
-  const text = tableToTsv(table); // textContent가 이미 두 줄을 공백으로 합쳐서 뽑아줌
-
+/** 표 복사 공통 로직 — Clipboard API로 "text/html"(엑셀·워드에 표 구조
+ * 그대로 붙여넣기용) + "text/plain" 둘 다 올리고, 안 되면 구형 브라우저용
+ * execCommand("copy") 폴백으로 fallbackNode를 화면 밖에서 선택해 복사.
+ * copyMainTable()과 각 추이 차트의 "표 복사" 버튼이 공유합니다. */
+async function writeTableToClipboard(html, text, fallbackNode, statusEl) {
   const showStatus = (msg, cls) => {
     statusEl.textContent = msg;
     statusEl.className = `load-status ${cls}`;
@@ -499,24 +498,45 @@ async function copyMainTable() {
     }
   } catch (err) { /* fall through to the legacy selection-based copy below */ }
 
-  // 구형 브라우저용 폴백도 원본이 아니라 "한 줄로 합친" 복제본을 화면 밖에
-  // 잠깐 붙였다가 선택해서 복사 — 그래야 이 경로에서도 같은 문제가 재발하지 않음.
   try {
-    clone.style.position = "fixed";
-    clone.style.left = "-9999px";
-    document.body.appendChild(clone);
+    const wasDetached = !fallbackNode.isConnected;
+    if (wasDetached) {
+      fallbackNode.style.position = "fixed";
+      fallbackNode.style.left = "-9999px";
+      document.body.appendChild(fallbackNode);
+    }
     const range = document.createRange();
-    range.selectNode(clone);
+    range.selectNode(fallbackNode);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
     const ok = document.execCommand("copy");
     sel.removeAllRanges();
-    document.body.removeChild(clone);
+    if (wasDetached) document.body.removeChild(fallbackNode);
     showStatus(ok ? "복사되었습니다. 엑셀/워드에 Ctrl+V로 붙여넣으세요." : "복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.", ok ? "ok" : "error");
   } catch (err) {
     showStatus("복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.", "error");
   }
+}
+
+async function copyMainTable() {
+  const table = document.getElementById("customq-main-table");
+  const statusEl = document.getElementById("main-table-copy-status");
+  if (!table) return;
+  const clone = buildCopyFriendlyClone(table);
+  const html = `<table>${clone.innerHTML}</table>`;
+  const text = tableToTsv(table); // textContent가 이미 두 줄을 공백으로 합쳐서 뽑아줌
+  await writeTableToClipboard(html, text, clone, statusEl);
+}
+
+/** 추이 차트의 "표로 보기" 안에 있는 표 전용 복사 — 셀 안에 줄바꿈용
+ * <div>가 없는 단순 표라서(메인 비교표와 달리) 그대로 복사해도 엑셀에서
+ * 행이 쪼개지는 문제가 없음. */
+async function copyChartTable(table, statusEl) {
+  if (!table) return;
+  const html = `<table>${table.innerHTML}</table>`;
+  const text = tableToTsv(table);
+  await writeTableToClipboard(html, text, table, statusEl);
 }
 
 /* =========================================================
@@ -984,7 +1004,11 @@ function renderAreaTrendChart(container, orgName, quarters) {
     <div class="trend-legend-row">${legend}</div>
     <details class="trend-table-details">
       <summary>표로 보기</summary>
-      <div class="table-wrap"><table class="data-table">
+      <div class="trend-table-actions">
+        <button type="button" class="btn coral trend-copy-table-btn" id="${chartId}-copy-btn">표 복사</button>
+        <span class="load-status" id="${chartId}-copy-status"></span>
+      </div>
+      <div class="table-wrap"><table class="data-table" id="${chartId}-table">
         <thead><tr><th class="text-col">문항</th>${quarters.map(q => `<th>${escapeHtml(q)}</th>`).join("")}</tr></thead>
         <tbody>${tableRows}</tbody>
       </table></div>
@@ -1035,6 +1059,13 @@ function renderAreaTrendChart(container, orgName, quarters) {
     col.addEventListener("blur", hide);
   });
   bindTrendLegendClicks(container);
+
+  const copyBtn = document.getElementById(`${chartId}-copy-btn`);
+  if (copyBtn) {
+    copyBtn.addEventListener("click", () => {
+      copyChartTable(document.getElementById(`${chartId}-table`), document.getElementById(`${chartId}-copy-status`));
+    });
+  }
 }
 
 /** 범례를 "끈 문항도 계속 보이되 흐리게" 그립니다 — 완전히 없애버리면
@@ -1083,7 +1114,14 @@ function renderLevel3TrendSection() {
   names.forEach(name => {
     const slot = document.createElement("div");
     grid.appendChild(slot);
-    renderAreaTrendChart(slot, name, quarters);
+    try {
+      renderAreaTrendChart(slot, name, quarters);
+    } catch (err) {
+      // 한 조직 카드가 예상 못 한 데이터 모양 때문에 실패해도 나머지
+      // 조직 카드(와 그 범례 클릭)까지 같이 망가지면 안 되므로 격리.
+      slot.innerHTML = `<div class="chart-card"><div class="chart-card-title">${escapeHtml(name)}</div>
+        <div class="note-box warning">이 조직의 그래프를 그리는 중 오류가 발생했습니다: ${escapeHtml(err.message)}</div></div>`;
+    }
   });
 
   document.getElementById("trend-show-all").addEventListener("click", (e) => {
