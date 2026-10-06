@@ -390,6 +390,11 @@
   .cq-q-quarter-label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
   .cq-standard-name-input { font-size: 13px; font-weight: 600; padding: 3px 6px; min-width: 160px; }
   .cq-delete-standard { padding: 2px 8px; font-size: 12px; color: var(--negative); }
+  .cq-quarter-order-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .cq-quarter-chip { display: flex; align-items: center; gap: 4px; background: var(--chip-bg, #f1f3f6); border-radius: 6px; padding: 4px 6px 4px 10px; font-size: 13px; }
+  .cq-quarter-chip button { border: none; background: none; cursor: pointer; font-size: 13px; padding: 2px 5px; color: var(--muted); }
+  .cq-quarter-chip button:disabled { opacity: 0.3; cursor: default; }
+  .cq-quarter-chip button:hover:not(:disabled) { color: var(--navy-900); }
   .chart-copy-status { font-size: 11.5px; color: var(--positive); font-weight: 600; }
   .svg-chart-wrap svg { width: 100%; height: auto; display: block; }
   .scatter-caption { font-size: 12px; color: var(--muted); margin-top: 8px; }
@@ -609,7 +614,10 @@
       <div class="hq-benchmark-box">
         <div class="hq-benchmark-title">특화문항 매칭 <span class="hq-benchmark-desc">(분기마다 문항 문구·조직 구성이 다를 수 있어 수동으로 묶어줍니다 — 상단 "특화문항 데이터 불러오기"로 먼저 불러오세요)</span></div>
 
-        <div class="admin-hint" style="margin-top:4px;">조직 매칭 — dept_code를 자동으로 못 구한 조직만 표시됩니다</div>
+        <div class="admin-hint" style="margin-top:4px;">분기 순서 — "1Q/2Q/3Q"처럼 알파벳순이 시간순과 같으면 그대로 두면 되지만, "작년 3Q"처럼 연도가 다른 분기가 섞이면 순서가 어긋나므로 여기서 직접 맞춰주세요(왼쪽이 과거, 오른쪽이 최신)</div>
+        <div id="cq-quarter-order-list"></div>
+
+        <div class="admin-hint" style="margin-top:14px;">조직 매칭 — dept_code를 자동으로 못 구한 조직만 표시됩니다</div>
         <div id="cq-org-mapping-list"></div>
 
         <div class="admin-hint" style="margin-top:14px;">문항 매칭 — 분기별 실제 문항을 같은 표준 문항으로 묶으면 "특화문항" 탭의 하락/상승 비교에 쓰입니다</div>
@@ -2628,6 +2636,12 @@ const state = {
   customQuestionsByQuarter: {},   // { "<분기명>": [ {dept_code, dept_name, 사업부, custom_questions:{질문문구:점수}, ...}, ... ] }
   customQuestionMapping: {},      // { "<표준 문항명>": { "<분기명>": "<그 분기에서의 실제 문항 문구>" } } — 분기 간 트렌드 비교용
   customQuestionOrgMapping: {},   // { "<분기명>||<원본 dept_name>": "<관리자가 지정한 dept_code>" } — dept_code:null 행 수동 매칭용
+  // 분기명을 그냥 알파벳순으로 정렬하면 "1Q/2Q/3Q"처럼 자연스럽게 맞는
+  // 경우도 있지만 "작년 3Q"처럼 연도가 다른 분기가 섞이면 실제 시간순과
+  // 어긋남(한글이 숫자보다 코드값이 커서 알파벳순으로는 맨 뒤로 가버림).
+  // 그래서 순서는 이 배열로 명시적으로 관리하고, 아직 순서를 안 정한
+  // 새 분기는 getCustomQuestionQuarters()가 알파벳순으로 뒤에 붙여줌.
+  customQuestionQuarterOrder: [],
   customQuestionTopN: 5,           // 하락/상승 및 상위/하위 TopN 표시 개수(사용자가 조정 가능)
   customQuestionSelectedQuarter: null, // "특화문항" 탭 상단 섹션에서 보고 있는 분기
   customQuestionQuarterA: null,    // 하락/상승 비교의 기준 분기
@@ -4498,8 +4512,17 @@ function resolveCustomQuestionDeptCode(quarter, record) {
   if (record.dept_code) return String(record.dept_code);
   return state.customQuestionOrgMapping[`${quarter}||${record.dept_name}`] || null;
 }
+/** 분기 목록을 시간순으로 반환합니다. 관리자가 "분기 순서"에서 명시적으로
+ * 정해둔 순서를 우선 따르고, 아직 순서를 안 정한 분기(새로 불러온 분기 등)는
+ * 알파벳순으로 정렬해 뒤에 붙입니다 — "1Q/2Q/3Q"만 있을 땐 알파벳순이 곧
+ * 시간순이라 순서를 안 정해도 잘 동작하지만, "작년 3Q"처럼 한글이 섞인
+ * 분기명이 추가되면 알파벳순과 실제 시간순이 어긋나므로 관리자 설정이
+ * 필요합니다. */
 function getCustomQuestionQuarters() {
-  return Object.keys(state.customQuestionsByQuarter).sort();
+  const all = Object.keys(state.customQuestionsByQuarter);
+  const ordered = state.customQuestionQuarterOrder.filter(q => all.includes(q));
+  const rest = all.filter(q => !ordered.includes(q)).sort();
+  return [...ordered, ...rest];
 }
 function customQuestionRecordsInScope(quarter, scopeCodes) {
   const records = state.customQuestionsByQuarter[quarter] || [];
@@ -4944,9 +4967,35 @@ function renderAdminMode() {
  * "표준 문항" 하나로 묶음(하락/상승 비교에 쓰임). 매번 전체를 다시 그려서
  * (admin-tree와 동일한 방식) 별도 sync 패스가 필요 없게 함. */
 function renderCustomQuestionMatchingAdmin() {
+  const orderListEl = document.getElementById("cq-quarter-order-list");
   const orgListEl = document.getElementById("cq-org-mapping-list");
   const qListEl = document.getElementById("cq-question-mapping-list");
-  if (!orgListEl || !qListEl) return; // 아직 DOM에 없는 시점(최초 로드 전) 방어
+  if (!orderListEl || !orgListEl || !qListEl) return; // 아직 DOM에 없는 시점(최초 로드 전) 방어
+
+  const allQuarters = getCustomQuestionQuarters();
+  if (!allQuarters.length) {
+    orderListEl.innerHTML = `<div class="note-box">특화문항 데이터를 먼저 불러오세요.</div>`;
+  } else {
+    orderListEl.innerHTML = `<div class="cq-quarter-order-row">` + allQuarters.map((q, i) => `
+      <span class="cq-quarter-chip">
+        <button class="cq-quarter-move-left" data-idx="${i}" ${i === 0 ? "disabled" : ""} title="앞으로">◀</button>
+        ${escapeHtml(q)}
+        <button class="cq-quarter-move-right" data-idx="${i}" ${i === allQuarters.length - 1 ? "disabled" : ""} title="뒤로">▶</button>
+      </span>`).join("") + `</div>`;
+    const moveQuarter = (idx, delta) => {
+      const order = [...allQuarters];
+      const newIdx = idx + delta;
+      if (newIdx < 0 || newIdx >= order.length) return;
+      [order[idx], order[newIdx]] = [order[newIdx], order[idx]];
+      state.customQuestionQuarterOrder = order;
+      document.getElementById("cq-mapping-status").textContent = "저장되지 않은 변경사항 있음";
+      renderCustomQuestionMatchingAdmin();
+    };
+    orderListEl.querySelectorAll(".cq-quarter-move-left").forEach(btn =>
+      btn.addEventListener("click", (e) => moveQuarter(Number(e.target.dataset.idx), -1)));
+    orderListEl.querySelectorAll(".cq-quarter-move-right").forEach(btn =>
+      btn.addEventListener("click", (e) => moveQuarter(Number(e.target.dataset.idx), 1)));
+  }
 
   const unmatched = collectUnmatchedCustomQuestionOrgs();
   if (!unmatched.length) {
@@ -5762,6 +5811,7 @@ document.getElementById("file-cq-mapping").addEventListener("change", (e) => {
   readJsonFile(file, (json) => {
     state.customQuestionMapping = json.custom_question_mapping || {};
     state.customQuestionOrgMapping = json.custom_question_org_mapping || {};
+    state.customQuestionQuarterOrder = json.custom_question_quarter_order || [];
     renderCustomQuestionMatchingAdmin();
     statusEl.textContent = `"${file.name}" 불러옴`;
   });
@@ -5774,6 +5824,7 @@ document.getElementById("btn-save-cq-mapping").addEventListener("click", () => {
     round: state.round || null,
     custom_question_mapping: { ...state.customQuestionMapping },
     custom_question_org_mapping: { ...state.customQuestionOrgMapping },
+    custom_question_quarter_order: [...state.customQuestionQuarterOrder],
     saved_at: new Date().toISOString(),
   };
   downloadJson(payload, `custom_question_mapping_${name}.json`);

@@ -224,7 +224,19 @@ def load_custom_questions_records(path=None, quarter=None):
         label = quarter or sorted(quarters)[-1]
         records = quarters.get(label, [])
         if quarter is None:
-            print(f"  특화문항: 분기 미지정 — '{label}'(가장 최근으로 추정) 사용", file=sys.stderr)
+            # 분기명을 알파벳순으로 정렬해 마지막 것을 "가장 최근"으로 추정하는데,
+            # 이건 "1Q/2Q/3Q"처럼 분기명 자체가 시간순과 알파벳순이 일치할 때만
+            # 맞습니다. "작년 3Q"처럼 연도가 다른 분기가 섞이면(한글이 숫자보다
+            # 코드값이 커서 알파벳순 맨 뒤로 감) 틀리게 고를 수 있으니, 분기가
+            # 여러 개면 전체 목록을 같이 보여주고 필요하면 config의
+            # CUSTOM_QUESTIONS_QUARTER로 직접 지정하라고 안내합니다.
+            if len(quarters) > 1:
+                print(f"  특화문항: 분기 미지정 — 사용 가능한 분기 {sorted(quarters)} 중 "
+                      f"'{label}'(알파벳순 마지막)을 가장 최근으로 추정해 사용합니다. "
+                      f"연도가 다른 분기가 섞여 있으면 틀릴 수 있으니 맞는지 확인하거나 "
+                      f"config의 CUSTOM_QUESTIONS_QUARTER로 직접 지정하세요.", file=sys.stderr)
+            else:
+                print(f"  특화문항: 분기 미지정 — '{label}'(가장 최근으로 추정) 사용", file=sys.stderr)
     else:
         records = data  # 과거 버전의 평평한 리스트 형식
 
