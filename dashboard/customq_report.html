@@ -117,7 +117,10 @@
   </div>
 
   <div class="panel">
-    <div class="panel-title">전체 비교표</div>
+    <div class="panel-title">전체 비교표
+      <button class="btn coral" id="btn-copy-main-table" style="margin-left:10px;">표 복사 (엑셀·워드용)</button>
+      <span id="main-table-copy-status" class="load-status"></span>
+    </div>
     <div class="panel-hint" id="main-table-hint"></div>
     <div class="toolbar" id="main-table-toolbar"></div>
     <div id="main-table-wrap"></div>
@@ -272,6 +275,58 @@ function readJsonFile(file, cb) {
 }
 
 /* =========================================================
+   표 복사 (엑셀·워드용) — dashboard/index.html의 copyReportTable()과
+   동일한 방식: "text/html"로 복사해야 표(셀 구조)가 그대로 살아서
+   붙여넣기 됨. 비동기 Clipboard API가 없는 환경은 execCommand("copy")로
+   대체.
+   ========================================================= */
+function tableToTsv(tableEl) {
+  return Array.from(tableEl.rows).map(row =>
+    Array.from(row.cells).map(cell => cell.textContent.replace(/\s+/g, " ").trim()).join("\t")
+  ).join("\n");
+}
+
+async function copyMainTable() {
+  const table = document.getElementById("customq-main-table");
+  const statusEl = document.getElementById("main-table-copy-status");
+  if (!table) return;
+  const html = `<table>${table.innerHTML}</table>`;
+  const text = tableToTsv(table);
+
+  const showStatus = (msg, cls) => {
+    statusEl.textContent = msg;
+    statusEl.className = `load-status ${cls}`;
+    setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ""; }, 4000);
+  };
+
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+      showStatus("복사되었습니다. 엑셀/워드에 Ctrl+V로 붙여넣으세요.", "ok");
+      return;
+    }
+  } catch (err) { /* fall through to the legacy selection-based copy below */ }
+
+  try {
+    const range = document.createRange();
+    range.selectNode(table);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const ok = document.execCommand("copy");
+    sel.removeAllRanges();
+    showStatus(ok ? "복사되었습니다. 엑셀/워드에 Ctrl+V로 붙여넣으세요." : "복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.", ok ? "ok" : "error");
+  } catch (err) {
+    showStatus("복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.", "error");
+  }
+}
+
+/* =========================================================
    Admin: 산하 부서 설정
    ========================================================= */
 function renderHierarchyAdmin() {
@@ -281,12 +336,16 @@ function renderHierarchyAdmin() {
     el.innerHTML = `<div class="note-box">데이터를 먼저 불러오세요.</div>`;
     return;
   }
-  el.innerHTML = names.map(name => {
+  // 알파벳순 평면 목록이 아니라 비교표와 같은 트리 순서(들여쓰기)로 보여줘서,
+  // 드롭다운에서 상위 부서를 바꾸면 그 부서가 바로 새 위치로 "이동"하는 게
+  // 눈에 보이게 함 — 어디로 옮겨졌는지 매번 평면 목록을 훑어보지 않아도 됨.
+  el.innerHTML = orderedTreeRows().map(({ name, depth }) => {
     const options = names.filter(n => n !== name && !wouldCreateCycle(name, n))
       .map(n => `<option value="${escapeHtml(n)}" ${state.parentMap[name] === n ? "selected" : ""}>${escapeHtml(n)}</option>`)
       .join("");
+    const indent = "　".repeat(depth) + (depth > 0 ? "└ " : "");
     return `<div class="admin-row">
-      <span class="label">${escapeHtml(name)}</span>
+      <span class="label">${indent}${escapeHtml(name)}</span>
       상위 부서: <select data-name="${escapeHtml(name)}">
         <option value="">(없음 — 최상위)</option>
         ${options}
@@ -371,7 +430,7 @@ function renderMainTable() {
     return `<tr>${nameCell}${cellHtml(name, "응답률", true)}${QUESTION_KEYS.map(k => cellHtml(name, k, false)).join("")}</tr>`;
   }).join("")}</tbody>`;
 
-  wrapEl.innerHTML = `<div class="table-wrap"><table class="data-table">${thead}${tbody}</table></div>`;
+  wrapEl.innerHTML = `<div class="table-wrap"><table class="data-table" id="customq-main-table">${thead}${tbody}</table></div>`;
 
   bind("sel-quarter-current", "change", e => { state.quarterCurrent = e.target.value; renderAll(); });
   bind("sel-quarter-baseline", "change", e => { state.quarterBaseline = e.target.value; renderAll(); });
@@ -542,6 +601,8 @@ document.getElementById("btn-save-hierarchy").addEventListener("click", () => {
   statusEl.textContent = "customq_report_hierarchy.json 저장됨";
   statusEl.className = "load-status ok";
 });
+
+document.getElementById("btn-copy-main-table").addEventListener("click", copyMainTable);
 
 renderAll();
 </script>
