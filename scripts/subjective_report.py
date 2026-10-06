@@ -113,6 +113,9 @@ CONFIG = {
     # 자동 탐색. dept_code로 매칭되어 위 area_scores와 함께 총평/종합 분석
     # LLM 프롬프트의 객관식 근거에 포함되고, 대시보드 JSON에도 실려 나감.
     "CUSTOM_QUESTIONS_PATH": None,
+    # 특화문항 파일이 분기별로 나뉘어 있으면(1Q/2Q/3Q 등 시트별) 그중 어느
+    # 분기를 쓸지. None이면 가장 최근(정렬 시 마지막)으로 추정.
+    "CUSTOM_QUESTIONS_QUARTER": None,
 
     # 대시보드 통합용 결과 JSON 경로. None이면 data/subjective_analysis.json에
     # 씀 — dashboard/index.html의 "주관식분석" 탭 "주관식 AI 분석 불러오기"
@@ -187,13 +190,21 @@ def load_objective_records(path=None):
     return {r["dept_code"]: r for r in records if r.get("dept_code")}
 
 
-def load_custom_questions_records(path=None):
+def load_custom_questions_records(path=None, quarter=None):
     """특화문항(조직마다 다를 수 있는 맞춤형 객관식 문항) 점수 JSON —
     scripts/custom_questions_loader.py의 출력 — 을 읽어 {dept_code: record}
     딕셔너리로 반환합니다. path를 안 주면 data/custom_questions_data.json을
     찾고, 없으면 빈 딕셔너리를 반환합니다(이 경우 특화문항 없이 area_scores
     등 나머지 객관식 지표만으로 진행 — load_objective_records와 동일하게
-    없어도 에러 없이 그냥 생략됨)."""
+    없어도 에러 없이 그냥 생략됨).
+
+    custom_questions_loader.py는 시트(분기)별로 {"quarters": {"<분기>":
+    [레코드, ...]}} 형태를 쓰는데(한 워크북에 1Q/2Q/3Q처럼 여러 분기가
+    섞여 있을 수 있어서), 이 함수는 그중 한 분기만 골라 씁니다 — quarter를
+    안 주면 분기 라벨을 정렬해서 마지막 것(가장 최근으로 가정)을 씁니다.
+    과거 버전이 쓰던 평평한 리스트 형식도(분기 구분 없음) 그대로 지원합니다.
+    dept_code가 null인 행(분기 간 조직 매칭이 안 돼 사람이 대시보드에서
+    수동 연결해야 하는 행)은 여기서는 자동으로 제외됩니다."""
     if path:
         p = Path(path)
         if not p.exists():
@@ -204,7 +215,19 @@ def load_custom_questions_records(path=None):
         if not p.exists():
             return {}
     with open(p, "r", encoding="utf-8") as f:
-        records = json.load(f)
+        data = json.load(f)
+
+    if isinstance(data, dict) and "quarters" in data:
+        quarters = data["quarters"]
+        if not quarters:
+            return {}
+        label = quarter or sorted(quarters)[-1]
+        records = quarters.get(label, [])
+        if quarter is None:
+            print(f"  특화문항: 분기 미지정 — '{label}'(가장 최근으로 추정) 사용", file=sys.stderr)
+    else:
+        records = data  # 과거 버전의 평평한 리스트 형식
+
     return {r["dept_code"]: r for r in records if r.get("dept_code")}
 
 
@@ -1223,7 +1246,8 @@ def build_all_org_stats(strength_df, weakness_df, leader_df, config=CONFIG):
     top_k = config["TOP_K"]
     top_k_amb = config["TOP_K_AMBIVALENT"]
     objective_records = load_objective_records(config.get("OBJECTIVE_DATA_PATH"))
-    custom_question_records = load_custom_questions_records(config.get("CUSTOM_QUESTIONS_PATH"))
+    custom_question_records = load_custom_questions_records(config.get("CUSTOM_QUESTIONS_PATH"),
+                                                              config.get("CUSTOM_QUESTIONS_QUARTER"))
     dept_code_by_name = load_dept_code_lookup()
 
     company_strength_baseline = compute_company_baseline(strength_df, org_level, prob_min)

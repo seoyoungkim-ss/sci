@@ -20,6 +20,23 @@ None으로 옵니다. 그래서 각 컬럼의 실제 라벨은 "2행 값이 있�
 실제 열 순서가 이 설명과 다르면 아래 COL_* 상수만 고치면 됩니다(위치 기반
 컬럼 매핑 — 이 저장소의 다른 로더들과 동일한 방식).
 
+분기(시트)별 데이터: 한 워크북 안에 여러 시트가 있고 각 시트가 서로 다른
+분기(예: 1Q/2Q/3Q)를 나타내는 경우를 지원합니다 — 시트명을 그대로 분기
+라벨로 써서 data/custom_questions_data.json을 { "quarters": { "<시트명>":
+[레코드, ...] } } 형태로 씁니다(시트마다 같은 부서가 다시 나와도 서로
+다른 분기로 보고 덮어쓰지 않음 — 예전엔 전체를 dept_code 하나로만 묶어서
+같은 부서가 여러 시트에 있으면 마지막 시트 것만 남는 문제가 있었음).
+분기마다 문항 문구가 바뀌거나(완전히 같은 문항이 아닐 수 있음) 조직
+구성이 달라질 수 있어서, 분기 간 문항/조직을 어떻게 매칭할지는 이 스크립트가
+결정하지 않고 대시보드의 "특화문항" 탭 관리자 매칭 UI에서 사람이 처리합니다
+— 그래서 이 스크립트는 raw 데이터를 분기별로 그대로 넘기기만 합니다.
+
+부서코드를 못 구한 행(파일에 부서코드 컬럼도 비어있고 survey_data.json
+에도 이 이름이 없는 경우)도 건너뛰지 않고 dept_code: null로 그대로
+포함시킵니다 — 조직 구성이 분기마다 달라 자동 매칭이 안 되는 경우를
+대시보드의 관리자 매칭 UI에서 사람이 수동으로 연결할 수 있게 하기 위함
+(경고는 그대로 출력해서 몇 건이나 수동 처리가 필요한지 바로 알 수 있음).
+
 Usage:
     python scripts/custom_questions_loader.py "C:\\path\\to\\특화문항.xlsx"
     python scripts/custom_questions_loader.py "C:\\folder" --recursive
@@ -104,10 +121,63 @@ def parse_header_labels(values):
     return labels
 
 
+def parse_one_sheet(values, sheet_label, dept_code_by_name, verbose=False):
+    """시트 하나(한 분기)의 raw values를 부서별 레코드 리스트로 변환합니다.
+    부서코드를 못 구해도 건너뛰지 않고 dept_code: None으로 포함시킵니다
+    (대시보드 관리자 매칭 UI에서 수동 연결 대상)."""
+    if not values or len(values) <= HEADER_ROWS:
+        return []
+    custom_labels = parse_header_labels(values)
+
+    records = []
+    unmatched = 0
+    for row in values[HEADER_ROWS:]:
+        if not row:
+            continue
+        dept_name = row[COL_DEPT_NAME] if COL_DEPT_NAME < len(row) else None
+        if not isinstance(dept_name, str) or not dept_name.strip():
+            continue
+        dept_name = dept_name.strip()
+
+        raw_code = row[COL_DEPT_CODE] if COL_DEPT_CODE < len(row) else None
+        if raw_code not in (None, ""):
+            dept_code = str(int(raw_code)) if isinstance(raw_code, float) and raw_code.is_integer() else str(raw_code).strip()
+        else:
+            dept_code = dept_code_by_name.get(dept_name)
+        if not dept_code:
+            unmatched += 1
+            dept_code = None
+
+        custom_questions = {}
+        for col, label in custom_labels.items():
+            score = to_number(row[col]) if col < len(row) else None
+            if score is not None:
+                custom_questions[label] = score
+
+        biz_unit = row[COL_BUSINESS_UNIT] if COL_BUSINESS_UNIT < len(row) else None
+        records.append({
+            "dept_code": dept_code,
+            "dept_name": dept_name,
+            "사업부": biz_unit.strip() if isinstance(biz_unit, str) else None,
+            "target_count": to_number(row[COL_TARGET_COUNT]) if COL_TARGET_COUNT < len(row) else None,
+            "response_count": to_number(row[COL_RESPONSE_COUNT]) if COL_RESPONSE_COUNT < len(row) else None,
+            "response_rate": parse_response_rate(row[COL_RESPONSE_RATE]) if COL_RESPONSE_RATE < len(row) else None,
+            "custom_questions": custom_questions,
+        })
+    if unmatched:
+        print(f"  warning: [{sheet_label}] {unmatched}개 부서의 dept_code를 자동으로 못 구해서 "
+              f"dept_code: null로 포함시켰습니다 — 대시보드 '특화문항' 탭 관리자 매칭에서 "
+              f"수동으로 연결하세요.", file=sys.stderr)
+    if verbose:
+        print(f"  [{sheet_label}] {len(records)}개 부서 행 발견 (미매칭 {unmatched}건)")
+    return records
+
+
 def parse_one_workbook(path, dept_code_by_name, verbose=False):
-    """워크북 하나(여러 시트에 걸쳐 있을 수 있음 — 시트마다 독립적으로
-    스캔)를 읽어 {dept_code: record}를 반환합니다."""
-    records = {}
+    """워크북 하나를 열어 {시트명(분기 라벨): [레코드, ...]}를 반환합니다.
+    시트마다 독립적인 분기로 취급하므로, 같은 부서가 여러 시트(분기)에
+    나와도 서로 덮어쓰지 않습니다."""
+    quarters = {}
     app, wb, owns_app = open_or_attach(path)
     try:
         fname = Path(path).name
@@ -117,51 +187,13 @@ def parse_one_workbook(path, dept_code_by_name, verbose=False):
                 continue
             if not isinstance(values[0], list):  # 행이 1개뿐이면 xlwings가 1차원으로 줌
                 values = [values]
-            if len(values) <= HEADER_ROWS:
-                continue
-            custom_labels = parse_header_labels(values)
-
-            sheet_count = 0
-            for row in values[HEADER_ROWS:]:
-                if not row:
-                    continue
-                dept_name = row[COL_DEPT_NAME] if COL_DEPT_NAME < len(row) else None
-                if not isinstance(dept_name, str) or not dept_name.strip():
-                    continue
-                dept_name = dept_name.strip()
-
-                raw_code = row[COL_DEPT_CODE] if COL_DEPT_CODE < len(row) else None
-                if raw_code not in (None, ""):
-                    dept_code = str(int(raw_code)) if isinstance(raw_code, float) and raw_code.is_integer() else str(raw_code).strip()
-                else:
-                    dept_code = dept_code_by_name.get(dept_name)
-                if not dept_code:
-                    print(f"  warning: '{dept_name}' ({fname}:{sheet.name}) dept_code를 구할 수 없어 건너뜀 "
-                          f"(파일에 부서코드 컬럼도 비어있고 survey_data.json에도 이 이름이 없음)", file=sys.stderr)
-                    continue
-
-                custom_questions = {}
-                for col, label in custom_labels.items():
-                    score = to_number(row[col]) if col < len(row) else None
-                    if score is not None:
-                        custom_questions[label] = score
-
-                biz_unit = row[COL_BUSINESS_UNIT] if COL_BUSINESS_UNIT < len(row) else None
-                records[dept_code] = {
-                    "dept_code": dept_code,
-                    "dept_name": dept_name,
-                    "사업부": biz_unit.strip() if isinstance(biz_unit, str) else None,
-                    "target_count": to_number(row[COL_TARGET_COUNT]) if COL_TARGET_COUNT < len(row) else None,
-                    "response_count": to_number(row[COL_RESPONSE_COUNT]) if COL_RESPONSE_COUNT < len(row) else None,
-                    "response_rate": parse_response_rate(row[COL_RESPONSE_RATE]) if COL_RESPONSE_RATE < len(row) else None,
-                    "custom_questions": custom_questions,
-                }
-                sheet_count += 1
-            if verbose:
-                print(f"  [{fname}:{sheet.name}] {sheet_count}개 부서 행 발견")
+            sheet_label = sheet.name
+            records = parse_one_sheet(values, f"{fname}:{sheet_label}", dept_code_by_name, verbose=verbose)
+            if records:
+                quarters.setdefault(sheet_label, []).extend(records)
     finally:
         close_or_detach(app, wb, owns_app)
-    return records
+    return quarters
 
 
 def main():
@@ -176,21 +208,24 @@ def main():
     dept_code_by_name = load_dept_code_lookup()
     if not dept_code_by_name:
         print("warning: no data/survey_data.json or dummy_survey_data.json found — "
-              "부서코드 컬럼이 비어있는 행은 전부 건너뜁니다. 메인 로더(또는 generate_dummy_data.py)를 "
-              "먼저 돌려두세요.", file=sys.stderr)
+              "부서코드 컬럼이 비어있는 행은 전부 dept_code: null로 들어갑니다(관리자 매칭 필요). "
+              "메인 로더(또는 generate_dummy_data.py)를 먼저 돌려두면 자동 매칭률이 올라갑니다.",
+              file=sys.stderr)
 
     workbook_paths = resolve_workbook_paths(args.workbooks, recursive=args.recursive)
     print(f"{len(workbook_paths)}개 파일 처리 시작")
 
-    all_records = {}
+    all_quarters = {}
     for path in workbook_paths:
-        all_records.update(parse_one_workbook(path, dept_code_by_name, verbose=args.verbose))
+        for quarter, records in parse_one_workbook(path, dept_code_by_name, verbose=args.verbose).items():
+            all_quarters.setdefault(quarter, []).extend(records)
 
     out_path = Path(args.out) if args.out else DATA_DIR / "custom_questions_data.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(list(all_records.values()), f, ensure_ascii=False, indent=2)
-    print(f"wrote {out_path} ({len(all_records)}개 부서)")
+        json.dump({"quarters": all_quarters}, f, ensure_ascii=False, indent=2)
+    total = sum(len(v) for v in all_quarters.values())
+    print(f"wrote {out_path} (분기 {len(all_quarters)}개: {list(all_quarters.keys())}, 총 {total}개 부서x분기 행)")
 
 
 if __name__ == "__main__":

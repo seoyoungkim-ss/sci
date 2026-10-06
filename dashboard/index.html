@@ -381,6 +381,15 @@
   .ai-top-title { font-weight: 700; font-size: 13px; color: var(--navy-800); }
   .ai-pct { color: var(--muted); font-size: 12px; }
   .ai-note { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
+  .cq-up { color: var(--positive); font-weight: 600; }
+  .cq-down { color: var(--negative); font-weight: 600; }
+  .cq-match-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .cq-match-row:last-child { border-bottom: none; }
+  .cq-match-label { font-size: 13px; min-width: 200px; }
+  .cq-org-select, .cq-question-select { font-size: 12px; padding: 3px 6px; }
+  .cq-q-quarter-label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .cq-standard-name-input { font-size: 13px; font-weight: 600; padding: 3px 6px; min-width: 160px; }
+  .cq-delete-standard { padding: 2px 8px; font-size: 12px; color: var(--negative); }
   .chart-copy-status { font-size: 11.5px; color: var(--positive); font-weight: 600; }
   .svg-chart-wrap svg { width: 100%; height: auto; display: block; }
   .scatter-caption { font-size: 12px; color: var(--muted); margin-top: 8px; }
@@ -502,6 +511,9 @@
     <button class="btn ghost" id="btn-load-subjective-analysis">주관식 AI 분석 불러오기</button>
     <input type="file" id="file-subjective-analysis" accept=".json,application/json">
     <span id="subjective-analysis-load-status" class="load-status"></span>
+    <button class="btn ghost" id="btn-load-custom-questions">특화문항 데이터 불러오기</button>
+    <input type="file" id="file-custom-questions" accept=".json,application/json">
+    <span id="custom-questions-load-status" class="load-status"></span>
   </div>
 </header>
 
@@ -525,6 +537,7 @@
         <button class="tab-btn" data-tab="variance">조직편차</button>
         <button class="tab-btn" data-tab="segment">세그먼트비교</button>
         <button class="tab-btn" data-tab="qualitative">주관식분석</button>
+        <button class="tab-btn" data-tab="customq">특화문항</button>
       </div>
       <div id="tab-content"></div>
     </div>
@@ -591,6 +604,23 @@
           <input type="file" id="file-external" accept=".json,application/json">
           <button class="btn coral" id="btn-save-external">타사업부 값 저장</button>
           <span style="color:var(--muted); font-size:12px;" id="external-status"></span>
+        </div>
+      </div>
+      <div class="hq-benchmark-box">
+        <div class="hq-benchmark-title">특화문항 매칭 <span class="hq-benchmark-desc">(분기마다 문항 문구·조직 구성이 다를 수 있어 수동으로 묶어줍니다 — 상단 "특화문항 데이터 불러오기"로 먼저 불러오세요)</span></div>
+
+        <div class="admin-hint" style="margin-top:4px;">조직 매칭 — dept_code를 자동으로 못 구한 조직만 표시됩니다</div>
+        <div id="cq-org-mapping-list"></div>
+
+        <div class="admin-hint" style="margin-top:14px;">문항 매칭 — 분기별 실제 문항을 같은 표준 문항으로 묶으면 "특화문항" 탭의 하락/상승 비교에 쓰입니다</div>
+        <div id="cq-question-mapping-list"></div>
+        <button class="btn" id="btn-cq-add-standard-question" style="margin-top:8px;">+ 표준 문항 추가</button>
+
+        <div class="hq-benchmark-fields">
+          <button class="btn" id="btn-load-cq-mapping">매칭 불러오기</button>
+          <input type="file" id="file-cq-mapping" accept=".json,application/json">
+          <button class="btn coral" id="btn-save-cq-mapping">매칭 저장</button>
+          <span style="color:var(--muted); font-size:12px;" id="cq-mapping-status"></span>
         </div>
       </div>
     </div>
@@ -2589,6 +2619,21 @@ const state = {
   // analysis.json을 불러오면 채워짐. qualitativeData(원문 키워드 빈도)와는
   // 별개의, 한 단계 더 가공된 분석 결과.
   subjectiveAnalysis: {},
+  // 특화문항(조직마다 다를 수 있는 맞춤형 객관식 문항) — scripts/
+  // custom_questions_loader.py가 분기(시트)별로 만든 data/custom_questions_
+  // data.json을 "특화문항 데이터 불러오기"로 불러오면 채워짐. 분기마다
+  // 문항 문구가 조금씩 다르거나(완전히 똑같은 문항이 아닐 수 있음) 조직
+  // 구성이 달라질 수 있어서(dept_code를 못 구한 행은 dept_code: null로 옴),
+  // 분기 간 비교를 위한 매핑은 관리자가 수동으로 지정합니다.
+  customQuestionsByQuarter: {},   // { "<분기명>": [ {dept_code, dept_name, 사업부, custom_questions:{질문문구:점수}, ...}, ... ] }
+  customQuestionMapping: {},      // { "<표준 문항명>": { "<분기명>": "<그 분기에서의 실제 문항 문구>" } } — 분기 간 트렌드 비교용
+  customQuestionOrgMapping: {},   // { "<분기명>||<원본 dept_name>": "<관리자가 지정한 dept_code>" } — dept_code:null 행 수동 매칭용
+  customQuestionTopN: 5,           // 하락/상승 및 상위/하위 TopN 표시 개수(사용자가 조정 가능)
+  customQuestionSelectedQuarter: null, // "특화문항" 탭 상단 섹션에서 보고 있는 분기
+  customQuestionQuarterA: null,    // 하락/상승 비교의 기준 분기
+  customQuestionQuarterB: null,    // 하락/상승 비교의 대상 분기
+  customQuestionRankQuarter: null, // 전체 조직 랭킹 대상 분기
+  customQuestionRankQuestion: null, // 전체 조직 랭킹에 쓸 원본 문항 문구
   expandedTreeNodes: new Set(),
   dragCode: null,
   report: {
@@ -4441,6 +4486,188 @@ function renderQualitativeTab(container, data) {
   container.innerHTML = html;
 }
 
+/* =========================================================
+   특화문항 (custom per-division questions, quarter-over-quarter)
+   ========================================================= */
+/** dept_code가 비어 있으면(분기 간 조직 구성 차이로 자동 매칭 실패)
+ * 관리자가 지정한 customQuestionOrgMapping에서 찾습니다. 둘 다 없으면
+ * null(이 레코드는 조직 스코프 집계/전체 랭킹 모두에서 빠짐 — 랭킹은
+ * dept_name을 그대로 쓰므로 상관없지만, "이 조직+하위조직" 스코프 집계는
+ * dept_code가 있어야 가능). */
+function resolveCustomQuestionDeptCode(quarter, record) {
+  if (record.dept_code) return String(record.dept_code);
+  return state.customQuestionOrgMapping[`${quarter}||${record.dept_name}`] || null;
+}
+function getCustomQuestionQuarters() {
+  return Object.keys(state.customQuestionsByQuarter).sort();
+}
+function customQuestionRecordsInScope(quarter, scopeCodes) {
+  const records = state.customQuestionsByQuarter[quarter] || [];
+  return records.filter(r => {
+    const code = resolveCustomQuestionDeptCode(quarter, r);
+    return code && scopeCodes.has(code);
+  });
+}
+function averageRawQuestionScore(records, rawLabel) {
+  const vals = records.map(r => r.custom_questions && r.custom_questions[rawLabel])
+    .filter(v => typeof v === "number");
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+function allRawQuestionLabelsInQuarter(quarter) {
+  const labels = new Set();
+  (state.customQuestionsByQuarter[quarter] || []).forEach(r =>
+    Object.keys(r.custom_questions || {}).forEach(l => labels.add(l)));
+  return [...labels];
+}
+/** dept_code가 null인(관리자 매칭이 필요한) 레코드 전체를 분기별로 모읍니다
+ * — 관리자 모드의 "조직 매칭" 목록과 renderAdminMode의 배지 숫자가 공유. */
+function collectUnmatchedCustomQuestionOrgs() {
+  const rows = [];
+  for (const quarter of getCustomQuestionQuarters()) {
+    for (const r of state.customQuestionsByQuarter[quarter] || []) {
+      if (!r.dept_code && !state.customQuestionOrgMapping[`${quarter}||${r.dept_name}`]) {
+        rows.push({ quarter, dept_name: r.dept_name });
+      }
+    }
+  }
+  return rows;
+}
+
+function renderCustomQuestionsTab(container, data) {
+  const quarters = getCustomQuestionQuarters();
+  if (!quarters.length) {
+    container.innerHTML = `<div class="tab-panel-desc">조직별 특화문항(맞춤 객관식 문항) 점수를 분기별로 비교합니다.</div>
+      <div class="note-box">특화문항 데이터가 없습니다. 상단 "특화문항 데이터 불러오기"로 불러오면 여기에 표시됩니다.</div>`;
+    return;
+  }
+
+  if (!state.customQuestionSelectedQuarter || !quarters.includes(state.customQuestionSelectedQuarter)) {
+    state.customQuestionSelectedQuarter = quarters[quarters.length - 1];
+  }
+  const scopeCodes = new Set(collectSelfAndDescendantCodes(state.selectedCode));
+
+  let html = `<div class="tab-panel-desc">"${escapeHtml(data.dept_name)}"(하위 조직 포함)의 특화문항 점수입니다. `
+    + `분기마다 문항 문구나 조직 구성이 다를 수 있어, 분기 간 하락/상승 비교는 관리자 모드 `
+    + `"특화문항 매칭"에서 표준 문항으로 묶어둬야 정확합니다(같은 분기 안에서의 조직 랭킹은 매칭 없이도 됩니다).</div>`;
+
+  // ---- A. 현재 조직의 분기별 원본 점수 ----
+  html += `<div class="section-title">${escapeHtml(data.dept_name)} 특화문항 점수</div>`;
+  html += `<div class="segment-select-row"><label>분기 <select id="cq-quarter-select">`
+    + quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.customQuestionSelectedQuarter ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")
+    + `</select></label></div>`;
+
+  const scopedRecordsA = customQuestionRecordsInScope(state.customQuestionSelectedQuarter, scopeCodes);
+  if (!scopedRecordsA.length) {
+    html += `<div class="note-box">이 분기(${escapeHtml(state.customQuestionSelectedQuarter)})에는 `
+      + `"${escapeHtml(data.dept_name)}"(하위 조직 포함)에 해당하는 데이터가 없습니다.</div>`;
+  } else {
+    const labels = allRawQuestionLabelsInQuarter(state.customQuestionSelectedQuarter);
+    const bars = labels.map(label => ({ label, value: averageRawQuestionScore(scopedRecordsA, label) || 0 }));
+    html += chartBlockHtml(
+      renderBarChartSVG(bars, { width: 640, barHeight: 22, gap: 8, labelWidth: 220, formatValue: v => v.toFixed(1) }),
+      `특화문항_${data.dept_name}_${state.customQuestionSelectedQuarter}`);
+  }
+
+  // ---- B. 분기 간 하락·상승 TopN (표준 문항 매칭 필요) ----
+  const standardQuestions = Object.keys(state.customQuestionMapping);
+  html += `<div class="section-title">분기 간 하락·상승 Top${state.customQuestionTopN} (표준 문항 기준)</div>`;
+  if (quarters.length < 2) {
+    html += `<div class="note-box">분기가 2개 이상 있어야 비교할 수 있습니다.</div>`;
+  } else if (!standardQuestions.length) {
+    html += `<div class="note-box">표준 문항 매칭이 없습니다. 관리자 모드 "특화문항 매칭"에서 분기별 문항을 표준 문항으로 묶어주세요.</div>`;
+  } else {
+    if (!state.customQuestionQuarterA || !quarters.includes(state.customQuestionQuarterA)) {
+      state.customQuestionQuarterA = quarters[Math.max(0, quarters.length - 2)];
+    }
+    if (!state.customQuestionQuarterB || !quarters.includes(state.customQuestionQuarterB)) {
+      state.customQuestionQuarterB = quarters[quarters.length - 1];
+    }
+    html += `<div class="segment-select-row">
+      <label>기준 분기 <select id="cq-quarter-a-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.customQuestionQuarterA ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+      <label>비교 분기 <select id="cq-quarter-b-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === state.customQuestionQuarterB ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+      <label>TopN <input type="number" id="cq-topn-input" min="1" max="20" value="${state.customQuestionTopN}" style="width:56px"></label>
+    </div>`;
+
+    const recsA = customQuestionRecordsInScope(state.customQuestionQuarterA, scopeCodes);
+    const recsB = customQuestionRecordsInScope(state.customQuestionQuarterB, scopeCodes);
+    const deltas = [];
+    for (const sq of standardQuestions) {
+      const labelA = (state.customQuestionMapping[sq] || {})[state.customQuestionQuarterA];
+      const labelB = (state.customQuestionMapping[sq] || {})[state.customQuestionQuarterB];
+      if (!labelA || !labelB) continue;
+      const avgA = averageRawQuestionScore(recsA, labelA);
+      const avgB = averageRawQuestionScore(recsB, labelB);
+      if (avgA === null || avgB === null) continue;
+      deltas.push({ sq, avgA, avgB, delta: avgB - avgA });
+    }
+    if (!deltas.length) {
+      html += `<div class="note-box">두 분기 모두에 매칭되고 데이터가 있는 표준 문항이 없습니다.</div>`;
+    } else {
+      const topN = state.customQuestionTopN;
+      const declining = [...deltas].sort((a, b) => a.delta - b.delta).slice(0, topN);
+      const rising = [...deltas].sort((a, b) => b.delta - a.delta).slice(0, topN);
+      const line = d => `<li>${escapeHtml(d.sq)}: ${d.avgA.toFixed(1)} → ${d.avgB.toFixed(1)} `
+        + `<span class="${d.delta >= 0 ? "cq-up" : "cq-down"}">(${d.delta >= 0 ? "+" : ""}${d.delta.toFixed(1)})</span></li>`;
+      html += `<div class="ai-top-cols">
+        <div><div class="ai-top-title">하락 Top${topN}</div><ul>${declining.map(line).join("")}</ul></div>
+        <div><div class="ai-top-title">상승 Top${topN}</div><ul>${rising.map(line).join("")}</ul></div>
+      </div>`;
+    }
+  }
+
+  // ---- C. 전체 조직 중 상위·하위 TopN (분기 내 원본 문항 기준 — 매칭 불필요) ----
+  html += `<div class="section-title">전체 조직 중 상위·하위 Top${state.customQuestionTopN}</div>`;
+  const rankQuarter = (state.customQuestionRankQuarter && quarters.includes(state.customQuestionRankQuarter))
+    ? state.customQuestionRankQuarter : quarters[quarters.length - 1];
+  state.customQuestionRankQuarter = rankQuarter;
+  const rankLabels = allRawQuestionLabelsInQuarter(rankQuarter);
+  if (!rankLabels.length) {
+    html += `<div class="note-box">이 분기에는 문항 데이터가 없습니다.</div>`;
+  } else {
+    if (!state.customQuestionRankQuestion || !rankLabels.includes(state.customQuestionRankQuestion)) {
+      state.customQuestionRankQuestion = rankLabels[0];
+    }
+    html += `<div class="segment-select-row">
+      <label>분기 <select id="cq-rank-quarter-select">${quarters.map(q => `<option value="${escapeHtml(q)}" ${q === rankQuarter ? "selected" : ""}>${escapeHtml(q)}</option>`).join("")}</select></label>
+      <label>문항 <select id="cq-rank-question-select">${rankLabels.map(l => `<option value="${escapeHtml(l)}" ${l === state.customQuestionRankQuestion ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>
+    </div>`;
+
+    const allRecords = (state.customQuestionsByQuarter[rankQuarter] || [])
+      .filter(r => r.custom_questions && typeof r.custom_questions[state.customQuestionRankQuestion] === "number");
+    const ranked = allRecords
+      .map(r => ({ name: r.dept_name, score: r.custom_questions[state.customQuestionRankQuestion] }))
+      .sort((a, b) => b.score - a.score);
+    const topN = state.customQuestionTopN;
+    const top = ranked.slice(0, topN);
+    const bottom = ranked.slice(-topN).reverse();
+    html += `<div class="ai-top-cols">
+      <div><div class="ai-top-title">상위 Top${topN}</div><ul>${top.map(r => `<li>${escapeHtml(r.name)}: ${r.score.toFixed(1)}</li>`).join("")}</ul></div>
+      <div><div class="ai-top-title">하위 Top${topN}</div><ul>${bottom.map(r => `<li>${escapeHtml(r.name)}: ${r.score.toFixed(1)}</li>`).join("")}</ul></div>
+    </div>`;
+  }
+
+  const unmatched = collectUnmatchedCustomQuestionOrgs();
+  if (unmatched.length) {
+    html += `<div class="note-box">관리자 매칭이 필요한 조직 ${unmatched.length}건이 있습니다 `
+      + `(관리자 모드 "특화문항 매칭"에서 처리) — 매칭 전까지는 이 조직들이 "조직별 집계"에서 빠집니다.</div>`;
+  }
+
+  container.innerHTML = html;
+
+  const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener("change", handler); };
+  bind("cq-quarter-select", e => { state.customQuestionSelectedQuarter = e.target.value; renderTabContent(); });
+  bind("cq-quarter-a-select", e => { state.customQuestionQuarterA = e.target.value; renderTabContent(); });
+  bind("cq-quarter-b-select", e => { state.customQuestionQuarterB = e.target.value; renderTabContent(); });
+  bind("cq-topn-input", e => {
+    const n = parseInt(e.target.value, 10);
+    state.customQuestionTopN = (Number.isFinite(n) && n > 0) ? n : 5;
+    renderTabContent();
+  });
+  bind("cq-rank-quarter-select", e => { state.customQuestionRankQuarter = e.target.value; state.customQuestionRankQuestion = null; renderTabContent(); });
+  bind("cq-rank-question-select", e => { state.customQuestionRankQuestion = e.target.value; renderTabContent(); });
+}
+
 const TAB_RENDERERS = {
   overview: renderOverviewTab,
   driver: renderDriverTab,
@@ -4450,6 +4677,7 @@ const TAB_RENDERERS = {
   variance: renderVarianceTab,
   segment: renderSegmentTab,
   qualitative: renderQualitativeTab,
+  customq: renderCustomQuestionsTab,
 };
 
 function renderTabContent() {
@@ -4708,6 +4936,106 @@ function renderAdminMode() {
   document.getElementById("dummy-data-banner").hidden = !isUsingDummyData();
   syncHqBenchmarkInputs();
   renderExternalBenchmarkInputs();
+  renderCustomQuestionMatchingAdmin();
+}
+
+/** 특화문항 매칭 UI — (1) dept_code를 자동으로 못 구한 조직을 관리자가
+ * 기존 조직 중 하나로 연결, (2) 분기별로 문구가 다를 수 있는 문항들을
+ * "표준 문항" 하나로 묶음(하락/상승 비교에 쓰임). 매번 전체를 다시 그려서
+ * (admin-tree와 동일한 방식) 별도 sync 패스가 필요 없게 함. */
+function renderCustomQuestionMatchingAdmin() {
+  const orgListEl = document.getElementById("cq-org-mapping-list");
+  const qListEl = document.getElementById("cq-question-mapping-list");
+  if (!orgListEl || !qListEl) return; // 아직 DOM에 없는 시점(최초 로드 전) 방어
+
+  const unmatched = collectUnmatchedCustomQuestionOrgs();
+  if (!unmatched.length) {
+    orgListEl.innerHTML = `<div class="note-box">매칭이 필요한 조직이 없습니다.</div>`;
+  } else {
+    const allOrgOptions = Object.entries(state.recordsByCode)
+      .map(([code, r]) => ({ code, name: r.dept_name }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    orgListEl.innerHTML = unmatched.map(({ quarter, dept_name }) => {
+      const key = `${quarter}||${dept_name}`;
+      const current = state.customQuestionOrgMapping[key] || "";
+      return `<div class="cq-match-row">
+        <span class="cq-match-label">[${escapeHtml(quarter)}] ${escapeHtml(dept_name)}</span>
+        <select class="cq-org-select" data-key="${escapeHtml(key)}">
+          <option value="">선택 안 함</option>
+          ${allOrgOptions.map(o => `<option value="${escapeHtml(o.code)}" ${o.code === current ? "selected" : ""}>${escapeHtml(o.name)} (${escapeHtml(o.code)})</option>`).join("")}
+        </select>
+      </div>`;
+    }).join("");
+    orgListEl.querySelectorAll(".cq-org-select").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const key = e.target.dataset.key;
+        if (e.target.value) state.customQuestionOrgMapping[key] = e.target.value;
+        else delete state.customQuestionOrgMapping[key];
+        document.getElementById("cq-mapping-status").textContent = "저장되지 않은 변경사항 있음";
+        renderCustomQuestionMatchingAdmin();
+      });
+    });
+  }
+
+  const quarters = getCustomQuestionQuarters();
+  const standardQuestions = Object.keys(state.customQuestionMapping);
+  if (!quarters.length) {
+    qListEl.innerHTML = `<div class="note-box">특화문항 데이터를 먼저 불러오세요.</div>`;
+  } else if (!standardQuestions.length) {
+    qListEl.innerHTML = `<div class="note-box">"+ 표준 문항 추가"로 시작하세요.</div>`;
+  } else {
+    qListEl.innerHTML = standardQuestions.map(sq => {
+      const mapping = state.customQuestionMapping[sq] || {};
+      const quarterSelects = quarters.map(q => {
+        const labels = allRawQuestionLabelsInQuarter(q);
+        const current = mapping[q] || "";
+        return `<label class="cq-q-quarter-label">${escapeHtml(q)}
+          <select class="cq-question-select" data-standard="${escapeHtml(sq)}" data-quarter="${escapeHtml(q)}">
+            <option value="">선택 안 함</option>
+            ${labels.map(l => `<option value="${escapeHtml(l)}" ${l === current ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}
+          </select>
+        </label>`;
+      }).join("");
+      return `<div class="cq-match-row cq-question-row">
+        <input type="text" class="cq-standard-name-input" data-standard="${escapeHtml(sq)}" value="${escapeHtml(sq)}">
+        ${quarterSelects}
+        <button class="btn cq-delete-standard" data-standard="${escapeHtml(sq)}" title="삭제">✕</button>
+      </div>`;
+    }).join("");
+
+    qListEl.querySelectorAll(".cq-question-select").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const sq = e.target.dataset.standard, q = e.target.dataset.quarter;
+        if (!state.customQuestionMapping[sq]) state.customQuestionMapping[sq] = {};
+        if (e.target.value) state.customQuestionMapping[sq][q] = e.target.value;
+        else delete state.customQuestionMapping[sq][q];
+        document.getElementById("cq-mapping-status").textContent = "저장되지 않은 변경사항 있음";
+      });
+    });
+    qListEl.querySelectorAll(".cq-standard-name-input").forEach(input => {
+      input.addEventListener("change", (e) => {
+        const oldName = e.target.dataset.standard;
+        const newName = e.target.value.trim();
+        if (!newName || newName === oldName) { e.target.value = oldName; return; }
+        if (state.customQuestionMapping[newName]) {
+          alert(`"${newName}"은 이미 있는 표준 문항명입니다.`);
+          e.target.value = oldName;
+          return;
+        }
+        state.customQuestionMapping[newName] = state.customQuestionMapping[oldName];
+        delete state.customQuestionMapping[oldName];
+        document.getElementById("cq-mapping-status").textContent = "저장되지 않은 변경사항 있음";
+        renderCustomQuestionMatchingAdmin();
+      });
+    });
+    qListEl.querySelectorAll(".cq-delete-standard").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        delete state.customQuestionMapping[e.target.dataset.standard];
+        document.getElementById("cq-mapping-status").textContent = "저장되지 않은 변경사항 있음";
+        renderCustomQuestionMatchingAdmin();
+      });
+    });
+  }
 }
 
 /** Reflects state.hqBenchmark into the 6 score/전년비 number inputs in
@@ -5230,6 +5558,33 @@ document.getElementById("file-subjective-analysis").addEventListener("change", (
   e.target.value = "";
 });
 
+document.getElementById("btn-load-custom-questions").addEventListener("click", () => document.getElementById("file-custom-questions").click());
+document.getElementById("file-custom-questions").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("custom-questions-load-status");
+  readJsonFile(file, (json) => {
+    let quarters;
+    if (json && typeof json === "object" && !Array.isArray(json) && json.quarters) {
+      quarters = json.quarters;
+    } else if (Array.isArray(json)) {
+      // scripts/custom_questions_loader.py의 과거(분기 구분 없는) 출력 형식도 호환.
+      quarters = { "전체": json };
+    } else {
+      statusEl.textContent = `"${file.name}" 형식이 예상과 다릅니다 — { "quarters": { "<분기명>": [...] } } 형태여야 합니다`;
+      statusEl.className = "load-status error";
+      return;
+    }
+    state.customQuestionsByQuarter = quarters;
+    const quarterNames = Object.keys(quarters);
+    statusEl.textContent = `"${file.name}" 불러옴 (분기 ${quarterNames.length}개: ${quarterNames.join(", ")})`;
+    statusEl.className = "load-status ok";
+    if (state.mode === "view") renderTabContent();
+    if (state.mode === "admin") renderAdminMode();
+  });
+  e.target.value = "";
+});
+
 document.getElementById("btn-load-orgmap").addEventListener("click", () => document.getElementById("file-orgmap").click());
 document.getElementById("file-orgmap").addEventListener("change", (e) => {
   const file = e.target.files[0];
@@ -5389,6 +5744,40 @@ document.getElementById("btn-save-external").addEventListener("click", () => {
   const payload = { round: state.round || null, external_benchmarks: { ...state.externalBenchmarks }, saved_at: new Date().toISOString() };
   downloadJson(payload, `external_benchmark_${name}.json`);
   document.getElementById("external-status").textContent = `external_benchmark_${name}.json 저장됨`;
+});
+
+document.getElementById("btn-cq-add-standard-question").addEventListener("click", () => {
+  let base = "새 표준 문항", name = base, i = 1;
+  while (state.customQuestionMapping[name]) { name = `${base} ${++i}`; }
+  state.customQuestionMapping[name] = {};
+  document.getElementById("cq-mapping-status").textContent = "저장되지 않은 변경사항 있음";
+  renderCustomQuestionMatchingAdmin();
+});
+
+document.getElementById("btn-load-cq-mapping").addEventListener("click", () => document.getElementById("file-cq-mapping").click());
+document.getElementById("file-cq-mapping").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("cq-mapping-status");
+  readJsonFile(file, (json) => {
+    state.customQuestionMapping = json.custom_question_mapping || {};
+    state.customQuestionOrgMapping = json.custom_question_org_mapping || {};
+    renderCustomQuestionMatchingAdmin();
+    statusEl.textContent = `"${file.name}" 불러옴`;
+  });
+  e.target.value = "";
+});
+
+document.getElementById("btn-save-cq-mapping").addEventListener("click", () => {
+  const name = (state.round || "data").replace(/[\\/:*?"<>|]/g, "_");
+  const payload = {
+    round: state.round || null,
+    custom_question_mapping: { ...state.customQuestionMapping },
+    custom_question_org_mapping: { ...state.customQuestionOrgMapping },
+    saved_at: new Date().toISOString(),
+  };
+  downloadJson(payload, `custom_question_mapping_${name}.json`);
+  document.getElementById("cq-mapping-status").textContent = `custom_question_mapping_${name}.json 저장됨`;
 });
 
 /** Copies #summary-content as rich HTML (tables intact) to the
