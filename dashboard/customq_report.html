@@ -93,6 +93,31 @@
   .top-title { font-weight: 700; font-size: 13px; color: var(--navy-800); }
   .up { color: var(--positive); font-weight: 600; }
   .down { color: var(--negative); font-weight: 600; }
+
+  /* ---- 레벨3 조직 분기 추이 line chart (dataviz 스킬 팔레트/스펙) ---- */
+  .trend-grid { display: flex; flex-wrap: wrap; gap: 20px; }
+  .chart-card { width: 560px; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: #fcfcfb; }
+  .chart-card-title { font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .trend-chart-wrap svg text { font-family: inherit; }
+  .trend-hit-col { cursor: crosshair; }
+  .trend-hit-col:focus { outline: none; }
+  .trend-tooltip {
+    position: absolute; top: 16px; transform: translateX(-50%);
+    background: #ffffff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 11.5px; box-shadow: 0 2px 8px rgba(11,11,11,0.12);
+    pointer-events: none; white-space: nowrap; z-index: 5;
+  }
+  .trend-tooltip-title { font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .trend-tooltip-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+  .trend-tooltip-key { width: 12px; height: 2px; border-radius: 1px; display: inline-block; flex-shrink: 0; }
+  .trend-tooltip-name { color: var(--muted); flex: 1; }
+  .trend-tooltip-value { font-weight: 700; color: var(--text); }
+  .trend-legend-row { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; }
+  .trend-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text); }
+  .trend-legend-swatch { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+  .trend-table-details { margin-top: 10px; font-size: 12px; }
+  .trend-table-details summary { cursor: pointer; color: var(--muted); }
+  .trend-table-details .table-wrap { margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -157,6 +182,12 @@
     <div class="panel-hint">한 분기 안에서 전체 조직(산하 부서는 상위 부서에 합산됨) 중 점수가 가장 높거나 낮은 곳을 추립니다.</div>
     <div class="toolbar" id="rank-toolbar"></div>
     <div id="rank-content"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">조직별 분기 추이 (레벨3)</div>
+    <div class="panel-hint">산하 부서 설정에서 최상위 → 상위 → 그 다음, 이렇게 3단계로 지정된 조직(레벨3)마다 문항(영역)별 점수가 분기에 따라 어떻게 바뀌었는지 보여줍니다.</div>
+    <div id="level3-trend-content" class="trend-grid"></div>
   </div>
 
 </main>
@@ -401,12 +432,37 @@ function tableToTsv(tableEl) {
   ).join("\n");
 }
 
+/** 칸 안에서 메인값/증감을 각각 <div>로 쌓아두면(화면에 두 줄로 보이는
+ * 용도) 엑셀의 HTML 붙여넣기 파서가 그 한 칸을 서로 다른 행으로 쪼개버려서
+ * "괄호 안 증감 수치가 다른 행에 떨어져서 비교가 어렵다"는 문제가 있었음 —
+ * 복사용 복제본에서는 그 두 <div>를 한 줄(메인값 + 증감)로 합치고, 증감의
+ * 색은 CSS 클래스(엑셀 클립보드엔 <style>이 안 따라감) 대신 인라인
+ * style로 직접 넣어서 색도 그대로 살림. 화면에 보이는 원본 표는 건드리지
+ * 않습니다. */
+function buildCopyFriendlyClone(table) {
+  const clone = table.cloneNode(true);
+  clone.querySelectorAll("td").forEach(td => {
+    const main = td.querySelector(".cell-main");
+    const delta = td.querySelector(".cell-delta");
+    if (!main) return;
+    const mainText = main.textContent;
+    if (delta) {
+      const color = delta.classList.contains("up") ? "#2f9e6e" : "#e2503f";
+      td.innerHTML = `${escapeHtml(mainText)} <span style="color:${color};">${escapeHtml(delta.textContent)}</span>`;
+    } else {
+      td.textContent = mainText;
+    }
+  });
+  return clone;
+}
+
 async function copyMainTable() {
   const table = document.getElementById("customq-main-table");
   const statusEl = document.getElementById("main-table-copy-status");
   if (!table) return;
-  const html = `<table>${table.innerHTML}</table>`;
-  const text = tableToTsv(table);
+  const clone = buildCopyFriendlyClone(table);
+  const html = `<table>${clone.innerHTML}</table>`;
+  const text = tableToTsv(table); // textContent가 이미 두 줄을 공백으로 합쳐서 뽑아줌
 
   const showStatus = (msg, cls) => {
     statusEl.textContent = msg;
@@ -427,14 +483,20 @@ async function copyMainTable() {
     }
   } catch (err) { /* fall through to the legacy selection-based copy below */ }
 
+  // 구형 브라우저용 폴백도 원본이 아니라 "한 줄로 합친" 복제본을 화면 밖에
+  // 잠깐 붙였다가 선택해서 복사 — 그래야 이 경로에서도 같은 문제가 재발하지 않음.
   try {
+    clone.style.position = "fixed";
+    clone.style.left = "-9999px";
+    document.body.appendChild(clone);
     const range = document.createRange();
-    range.selectNode(table);
+    range.selectNode(clone);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
     const ok = document.execCommand("copy");
     sel.removeAllRanges();
+    document.body.removeChild(clone);
     showStatus(ok ? "복사되었습니다. 엑셀/워드에 Ctrl+V로 붙여넣으세요." : "복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.", ok ? "ok" : "error");
   } catch (err) {
     showStatus("복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.", "error");
@@ -779,12 +841,199 @@ function bind(id, evt, handler) {
   if (el) el.addEventListener(evt, handler);
 }
 
+/* =========================================================
+   레벨3 조직 분기 추이 (문항별 꺾은선 그래프)
+   색은 dataviz 스킬의 검증된 고정 8색 순서(QUESTION_KEYS 순서 그대로
+   매핑) — node scripts/validate_palette.js로 라인차트 인접쌍 기준
+   통과 확인된 순서이므로 임의로 섞지 않습니다.
+   ========================================================= */
+const TREND_CATEGORICAL_PALETTE = [
+  "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+  "#e87ba4", "#008300", "#4a3aa7", "#e34948",
+];
+
+/** 레벨3(최상위→상위→그 다음, 즉 depth===2) 조직명 목록 — 관리자가 정한
+ * 조직 순서(orderedTreeRows)를 그대로 따름. */
+function level3OrgNames() {
+  return orderedTreeRows().filter(r => r.depth === 2).map(r => r.name);
+}
+
+/** Y축 범위를 보기 좋은 5의 배수로 반올림하고 5개 눈금을 만듭니다. */
+function niceAxisDomain(values) {
+  if (!values.length) return { min: 0, max: 100, ticks: [0, 25, 50, 75, 100] };
+  const dataMin = Math.min(...values), dataMax = Math.max(...values);
+  const span = Math.max(1, dataMax - dataMin);
+  const pad = span * 0.15;
+  let min = Math.floor((dataMin - pad) / 5) * 5;
+  let max = Math.ceil((dataMax + pad) / 5) * 5;
+  if (min === max) { min -= 5; max += 5; }
+  const tickCount = 5;
+  const step = (max - min) / (tickCount - 1);
+  const ticks = Array.from({ length: tickCount }, (_, i) => Math.round(min + step * i));
+  return { min, max, ticks };
+}
+
+/** 조직 하나의 분기별(문항 8개) 꺾은선 그래프 카드를 그립니다 — 선 2px,
+ * 끝점 마커 8px(반지름4)+흰 테두리, 범례는 선 모양 키(박스 아님), 호버 시
+ * 세로 크로스헤어 + 전체 문항 값을 한 번에 보여주는 툴팁, 그리고 호버 없이도
+ * 같은 값을 볼 수 있는 접이식 표(표 뷰)까지 — dataviz 스킬의 라인차트
+ * 스펙(마크/범례/호버/표 트윈)을 그대로 따릅니다. */
+function renderAreaTrendChart(container, orgName, quarters) {
+  const seriesData = QUESTION_KEYS.map((key, i) => ({
+    key,
+    color: TREND_CATEGORICAL_PALETTE[i],
+    values: quarters.map(q => rollupValue(q, orgName, key)),
+  }));
+  const allValues = seriesData.flatMap(s => s.values).filter(v => typeof v === "number");
+
+  if (quarters.length < 2 || allValues.length < 2) {
+    container.innerHTML = `<div class="chart-card">
+      <div class="chart-card-title">${escapeHtml(orgName)}</div>
+      <div class="note-box">분기가 2개 이상이고 데이터가 있어야 추이를 볼 수 있습니다.</div>
+    </div>`;
+    return;
+  }
+
+  const { min, max, ticks } = niceAxisDomain(allValues);
+  const W = 560, H = 260;
+  const pad = { top: 16, right: 16, bottom: 32, left: 38 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+  const xAt = (i) => pad.left + (quarters.length > 1 ? (i / (quarters.length - 1)) * plotW : plotW / 2);
+  const yAt = (v) => pad.top + plotH - ((v - min) / (max - min)) * plotH;
+
+  const gridlines = ticks.map(t => `
+    <line x1="${pad.left}" y1="${yAt(t).toFixed(1)}" x2="${pad.left + plotW}" y2="${yAt(t).toFixed(1)}" stroke="#e1e0d9" stroke-width="1" />
+    <text x="${pad.left - 8}" y="${(yAt(t) + 3).toFixed(1)}" font-size="10" fill="#898781" text-anchor="end">${t}</text>`).join("");
+
+  const xLabels = quarters.map((q, i) => `
+    <text x="${xAt(i).toFixed(1)}" y="${H - pad.bottom + 18}" font-size="11" fill="#898781" text-anchor="middle">${escapeHtml(q)}</text>`).join("");
+
+  const linesAndMarkers = seriesData.map(s => {
+    const pts = s.values.map((v, i) => (typeof v === "number") ? { x: xAt(i), y: yAt(v) } : null);
+    if (!pts.some(Boolean)) return "";
+    let pathD = "";
+    pts.forEach((p, i) => {
+      if (!p) return;
+      const prevGap = i === 0 || !pts[i - 1];
+      pathD += `${prevGap ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)} `;
+    });
+    const markers = pts.map(p => p
+      ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="${s.color}" stroke="#fcfcfb" stroke-width="2" />`
+      : "").join("");
+    return `<path d="${pathD.trim()}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />${markers}`;
+  }).join("");
+
+  const colW = plotW / quarters.length;
+  const hitCols = quarters.map((q, i) => {
+    const colX = pad.left + i * colW;
+    return `<rect class="trend-hit-col" tabindex="0" data-idx="${i}" x="${colX.toFixed(1)}" y="${pad.top}" width="${colW.toFixed(1)}" height="${plotH}" fill="transparent" />`;
+  }).join("");
+
+  const legend = seriesData.map(s =>
+    `<span class="trend-legend-item"><span class="trend-legend-swatch" style="background:${s.color}"></span>${escapeHtml(s.key)}</span>`
+  ).join("");
+
+  const tableRows = seriesData.map(s =>
+    `<tr><td class="text-col">${escapeHtml(s.key)}</td>${s.values.map(v => `<td>${typeof v === "number" ? v.toFixed(1) : "-"}</td>`).join("")}</tr>`
+  ).join("");
+
+  const chartId = `trend-${Math.random().toString(36).slice(2, 9)}`;
+  container.innerHTML = `<div class="chart-card">
+    <div class="chart-card-title">${escapeHtml(orgName)}</div>
+    <div class="trend-chart-wrap" id="${chartId}-wrap" style="position:relative;">
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;">
+        ${gridlines}
+        <line x1="${pad.left}" y1="${pad.top + plotH}" x2="${pad.left + plotW}" y2="${pad.top + plotH}" stroke="#c3c2b7" stroke-width="1" />
+        ${xLabels}
+        ${linesAndMarkers}
+        <line class="trend-crosshair" x1="0" y1="${pad.top}" x2="0" y2="${pad.top + plotH}" stroke="#898781" stroke-width="1" opacity="0" />
+        ${hitCols}
+      </svg>
+      <div class="trend-tooltip" id="${chartId}-tooltip" hidden></div>
+    </div>
+    <div class="trend-legend-row">${legend}</div>
+    <details class="trend-table-details">
+      <summary>표로 보기</summary>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th class="text-col">문항</th>${quarters.map(q => `<th>${escapeHtml(q)}</th>`).join("")}</tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table></div>
+    </details>
+  </div>`;
+
+  const wrapEl = document.getElementById(`${chartId}-wrap`);
+  const tooltipEl = document.getElementById(`${chartId}-tooltip`);
+  const crosshairEl = wrapEl.querySelector(".trend-crosshair");
+  wrapEl.querySelectorAll(".trend-hit-col").forEach(col => {
+    const idx = Number(col.dataset.idx);
+    const show = () => {
+      const x = xAt(idx);
+      crosshairEl.setAttribute("x1", x.toFixed(1));
+      crosshairEl.setAttribute("x2", x.toFixed(1));
+      crosshairEl.setAttribute("opacity", "1");
+      // 레이블은 신뢰 안 된 데이터로 취급 — innerHTML 문자열 조합 대신
+      // textContent로 넣음(dataviz 스킬 interaction.md 참고).
+      tooltipEl.innerHTML = "";
+      const title = document.createElement("div");
+      title.className = "trend-tooltip-title";
+      title.textContent = quarters[idx];
+      tooltipEl.appendChild(title);
+      seriesData.forEach(s => {
+        const v = s.values[idx];
+        const row = document.createElement("div");
+        row.className = "trend-tooltip-row";
+        const key = document.createElement("span");
+        key.className = "trend-tooltip-key";
+        key.style.background = s.color;
+        const name = document.createElement("span");
+        name.className = "trend-tooltip-name";
+        name.textContent = s.key;
+        const val = document.createElement("span");
+        val.className = "trend-tooltip-value";
+        val.textContent = typeof v === "number" ? v.toFixed(1) : "-";
+        row.append(key, name, val);
+        tooltipEl.appendChild(row);
+      });
+      tooltipEl.style.left = `${(x / W) * 100}%`;
+      tooltipEl.hidden = false;
+    };
+    const hide = () => { crosshairEl.setAttribute("opacity", "0"); tooltipEl.hidden = true; };
+    col.addEventListener("pointerenter", show);
+    col.addEventListener("pointermove", show);
+    col.addEventListener("pointerleave", hide);
+    col.addEventListener("focus", show);
+    col.addEventListener("blur", hide);
+  });
+}
+
+function renderLevel3TrendSection() {
+  const container = document.getElementById("level3-trend-content");
+  if (!allDeptNames().length) {
+    container.innerHTML = `<div class="note-box">데이터를 먼저 불러오세요.</div>`;
+    return;
+  }
+  const names = level3OrgNames();
+  if (!names.length) {
+    container.innerHTML = `<div class="note-box">레벨3 조직이 없습니다 — 산하 부서 설정에서 최상위 → 상위 → 그 다음, 이렇게 3단계로 지정하면 여기에 표시됩니다.</div>`;
+    return;
+  }
+  const quarters = getQuarterLabels();
+  container.innerHTML = "";
+  names.forEach(name => {
+    const slot = document.createElement("div");
+    container.appendChild(slot);
+    renderAreaTrendChart(slot, name, quarters);
+  });
+}
+
 function renderAll() {
   renderOrderChips();
   renderHierarchyAdmin();
   renderMainTable();
   renderTrendSection();
   renderRankSection();
+  renderLevel3TrendSection();
 }
 
 /* =========================================================
