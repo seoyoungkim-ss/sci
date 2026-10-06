@@ -128,7 +128,7 @@
       상위 부서 바로 아래 들여써서 보여줍니다.
     </div>
 
-    <div class="admin-hint">최상위 조직 순서 — 기본은 가나다순이지만, ◀▶로 직접 정렬할 수 있습니다(표/목록 모두 이 순서를 따름). 산하 부서는 각자의 상위 부서 바로 아래 가나다순으로 붙습니다.</div>
+    <div class="admin-hint">조직 순서 — 최상위 조직과 산하가 2개 이상인 조직마다 각각 순서를 정할 수 있습니다. 기본은 가나다순이지만, ◀▶나 드래그로 직접 정렬하면 그 순서가 저장되어 표/목록 모두에 그대로 반영됩니다.</div>
     <div id="order-chip-list"></div>
 
     <div class="admin-hint" style="margin-top:14px;">부서별 상위 부서 지정</div>
@@ -171,10 +171,14 @@ const AVG_KEY = "__avg__";
 const state = {
   quarters: {},     // { "<분기명>": [ {dept_name, response_rate, scores:{문항:점수}}, ... ] }
   parentMap: {},     // { "<부서명>": "<상위 부서명>" } — 관리자가 지정한 산하 관계
-  // 최상위 조직의 표시 순서. 기본은 가나다순이지만 관리자가 ◀▶로 직접
-  // 정렬할 수 있음(dashboard/index.html의 "분기 순서"와 동일한 방식) —
-  // 아직 순서를 안 정한 조직은 가나다순으로 뒤에 자동으로 붙음.
-  topLevelOrder: [],
+  // 부서 표시 순서(형제 사이의 순서) — 최상위 그룹이든 어떤 부서의 산하
+  // 그룹이든 전부 이 하나의 배열로 관리합니다. 기본은 가나다순이지만
+  // 관리자가 그룹별로 ◀▶/드래그로 직접 정렬할 수 있음(dashboard/
+  // index.html의 "분기 순서"와 동일한 방식). 아직 순서를 안 정한 부서는
+  // 가나다순으로 그 그룹 안에서 뒤에 자동으로 붙음 — siblingsOf()가
+  // 그룹(형제 집합)별로 걸러서 상대 순서만 보므로, 이 배열에 다른 그룹
+  // 부서가 섞여 있어도 서로 영향을 주지 않습니다.
+  deptOrder: [],
   quarterCurrent: null, // 메인(비교 대상) 분기 — 기본 "3Q"
   quarterBaseline: null, // 기준(이전) 분기 — 기본 "1Q"
   trendMetric: AVG_KEY,
@@ -233,23 +237,30 @@ function wouldCreateCycle(childName, candidateParent) {
 function topLevelNames() {
   return allDeptNames().filter(n => !state.parentMap[n]);
 }
-/** 최상위 조직의 표시 순서. 관리자가 state.topLevelOrder에 명시적으로
- * 정해둔 순서를 먼저 따르고, 아직 순서를 안 정한(새로 생겼거나 산하에서
- * 방금 최상위로 바뀐) 조직은 가나다순으로 뒤에 붙입니다 — "순서가 선택한
- * 순서(=매번 바뀜)로 들어간다"는 피드백 대응: 이제 한 번 정하면 저장되는
- * 고정 순서를 씀. */
-function orderedTopLevelNames() {
-  const top = topLevelNames();
-  const ordered = state.topLevelOrder.filter(n => top.includes(n));
-  const rest = top.filter(n => !ordered.includes(n)).sort((a, b) => a.localeCompare(b));
-  return [...ordered, ...rest];
+/** 한 "형제 그룹"(parent===null이면 최상위 전체, 아니면 그 부서의 산하
+ * 전체)을 관리자가 정한 순서로 정렬해서 돌려줍니다. state.deptOrder는
+ * 그룹 구분 없이 전체 부서명을 담은 배열이지만, 여기서 그 그룹에 속한
+ * 이름만 걸러서 "그 안에서의 상대 순서"만 보기 때문에 다른 그룹의 순서와
+ * 서로 영향을 주지 않습니다. 아직 순서를 안 정한(목록에 없는) 부서는
+ * 가나다순으로 그 그룹 맨 뒤에 자동으로 붙습니다 — "가나다순으로 알아서
+ * 정리되는데 내가 설정하고 싶다"는 피드백 대응: 한 번 정하면 그 순서가
+ * 고정되어 저장됩니다. */
+function siblingsOf(parent) {
+  const members = parent === null ? topLevelNames() : childrenOf(parent);
+  const orderIndex = new Map(state.deptOrder.map((n, i) => [n, i]));
+  return [...members].sort((a, b) => {
+    const ia = orderIndex.has(a) ? orderIndex.get(a) : Infinity;
+    const ib = orderIndex.has(b) ? orderIndex.get(b) : Infinity;
+    if (ia !== ib) return ia - ib;
+    return a.localeCompare(b);
+  });
 }
 /** 표/랭킹에 실제로 올릴 전체 행 목록(최상위든 산하든 전부) — 트리 순서로
- * 정렬: 최상위 부서(관리자가 정한 순서) 바로 다음에 그 산하 부서들이
- * (가나다순, 들여쓰기 깊이와 함께) 이어집니다. 산하로 지정된 부서도
- * "전체가 다 나와야" 하므로 더 이상 최상위만 보여주지 않습니다 — 산하
- * 부서 설정은 각 행의 점수를 (그 부서 자신 + 그 아래 산하) 평균으로
- * 계산하는 데만 쓰이고, 화면에서 행 자체를 숨기지는 않습니다. */
+ * 정렬: 각 부서 바로 다음에 그 산하 부서들이(관리자가 정한 순서, 들여쓰기
+ * 깊이와 함께) 이어집니다. 산하로 지정된 부서도 "전체가 다 나와야" 하므로
+ * 더 이상 최상위만 보여주지 않습니다 — 산하 부서 설정은 각 행의 점수를
+ * (그 부서 자신 + 그 아래 산하) 평균으로 계산하는 데만 쓰이고, 화면에서
+ * 행 자체를 숨기지는 않습니다. */
 function orderedTreeRows() {
   const rows = [];
   const visited = new Set();
@@ -257,9 +268,9 @@ function orderedTreeRows() {
     if (visited.has(name)) return; // 순환 참조 방어
     visited.add(name);
     rows.push({ name, depth });
-    for (const child of childrenOf(name).sort((a, b) => a.localeCompare(b))) visit(child, depth + 1);
+    for (const child of siblingsOf(name)) visit(child, depth + 1);
   }
-  for (const top of orderedTopLevelNames()) visit(top, 0);
+  for (const top of siblingsOf(null)) visit(top, 0);
   return rows;
 }
 function recordFor(quarter, name) {
@@ -373,7 +384,7 @@ function applyOrgMapFiles(parsedFiles) {
     resolved++;
   }
   state.parentMap = newParentMap;
-  state.topLevelOrder = newOrder;
+  state.deptOrder = newOrder;
   statusEl.textContent = resolved
     ? `조직도 적용됨 (${resolved}개 부서 매칭${unresolved ? `, ${unresolved}개는 현재 데이터에 없어 건너뜀` : ""})`
     : `일치하는 부서가 없습니다 — 부서코드와 부서명이 다르면 부서코드-이름 변환표 파일도 같이 선택하세요`;
@@ -434,44 +445,48 @@ async function copyMainTable() {
 }
 
 /* =========================================================
-   Admin: 최상위 조직 순서
+   Admin: 조직 순서(형제 그룹별)
    ========================================================= */
-function renderOrderChips() {
-  const el = document.getElementById("order-chip-list");
-  const top = orderedTopLevelNames();
-  if (!top.length) {
-    el.innerHTML = `<div class="note-box">데이터를 먼저 불러오세요.</div>`;
-    return;
-  }
-  el.innerHTML = `<div class="order-chip-row">` + top.map((name, i) => `
+/** 그룹(형제 집합) 하나의 순서를 새로 정하면, state.deptOrder에서 그
+ * 그룹 멤버들만 빼내고 새 순서로 다시 넣습니다 — 다른 그룹 멤버는
+ * 그대로 남아있으므로(순서 배열 안에서의 절대 위치는 의미 없고 그룹별로
+ * 걸러서 상대 순서만 보기 때문) 이 호출이 다른 그룹의 순서에 영향을
+ * 주지 않습니다. */
+function applySiblingOrder(parent, newOrder) {
+  const members = new Set(parent === null ? topLevelNames() : childrenOf(parent));
+  const rest = state.deptOrder.filter(n => !members.has(n));
+  state.deptOrder = [...rest, ...newOrder];
+  document.getElementById("hierarchy-status").textContent = "저장되지 않은 변경사항 있음";
+  document.getElementById("hierarchy-status").className = "load-status";
+  renderAll();
+}
+
+/** 그룹 하나(최상위 전체, 또는 어떤 부서의 산하 전체)에 대한 순서 조정
+ * UI(◀▶ + 드래그) 한 줄을 그려 넣습니다. */
+function renderOneOrderChipRow(container, parent, members) {
+  container.innerHTML = `<div class="order-chip-row">` + members.map((name, i) => `
     <span class="order-chip" draggable="true" data-idx="${i}">
       <button class="order-move-left" data-idx="${i}" ${i === 0 ? "disabled" : ""} title="앞으로">◀</button>
       ${escapeHtml(name)}
-      <button class="order-move-right" data-idx="${i}" ${i === top.length - 1 ? "disabled" : ""} title="뒤로">▶</button>
+      <button class="order-move-right" data-idx="${i}" ${i === members.length - 1 ? "disabled" : ""} title="뒤로">▶</button>
     </span>`).join("") + `</div>`;
 
-  const applyOrder = (order) => {
-    state.topLevelOrder = order;
-    document.getElementById("hierarchy-status").textContent = "저장되지 않은 변경사항 있음";
-    document.getElementById("hierarchy-status").className = "load-status";
-    renderAll();
-  };
   const moveOrg = (idx, delta) => {
-    const order = [...top];
+    const order = [...members];
     const newIdx = idx + delta;
     if (newIdx < 0 || newIdx >= order.length) return;
     [order[idx], order[newIdx]] = [order[newIdx], order[idx]];
-    applyOrder(order);
+    applySiblingOrder(parent, order);
   };
-  el.querySelectorAll(".order-move-left").forEach(btn =>
+  container.querySelectorAll(".order-move-left").forEach(btn =>
     btn.addEventListener("click", (e) => moveOrg(Number(e.target.dataset.idx), -1)));
-  el.querySelectorAll(".order-move-right").forEach(btn =>
+  container.querySelectorAll(".order-move-right").forEach(btn =>
     btn.addEventListener("click", (e) => moveOrg(Number(e.target.dataset.idx), 1)));
 
   // ---- 드래그로 순서 바꾸기 (좌우 화살표는 그대로 유지 — 드래그가 안 되는
   // 환경/취향을 위한 대체 수단) ----
   let dragFromIdx = null;
-  el.querySelectorAll(".order-chip").forEach(chip => {
+  container.querySelectorAll(".order-chip").forEach(chip => {
     chip.addEventListener("dragstart", (e) => {
       dragFromIdx = Number(chip.dataset.idx);
       e.dataTransfer.effectAllowed = "move";
@@ -480,7 +495,7 @@ function renderOrderChips() {
     });
     chip.addEventListener("dragend", () => {
       chip.classList.remove("dragging");
-      el.querySelectorAll(".order-chip").forEach(c => c.classList.remove("drag-over"));
+      container.querySelectorAll(".order-chip").forEach(c => c.classList.remove("drag-over"));
     });
     chip.addEventListener("dragover", (e) => {
       e.preventDefault(); // 허용해야 drop 이벤트가 발생함
@@ -493,12 +508,42 @@ function renderOrderChips() {
       chip.classList.remove("drag-over");
       const dropIdx = Number(chip.dataset.idx);
       if (dragFromIdx === null || dragFromIdx === dropIdx) return;
-      const order = [...top];
+      const order = [...members];
       const [moved] = order.splice(dragFromIdx, 1);
       order.splice(dropIdx, 0, moved);
       dragFromIdx = null;
-      applyOrder(order);
+      applySiblingOrder(parent, order);
     });
+  });
+}
+
+/** 순서 조정 UI 전체 — 최상위 그룹 하나 + 산하 부서가 있는 부서마다 그
+ * 산하 그룹 하나씩, 트리 순서 그대로 여러 줄로 보여줍니다. 그룹이
+ * 많아지면 화면이 길어지지만, 그룹당 멤버가 1개뿐이면("순서를 정할 게
+ * 없음") 그 줄은 생략합니다. */
+function renderOrderChips() {
+  const el = document.getElementById("order-chip-list");
+  if (!allDeptNames().length) {
+    el.innerHTML = `<div class="note-box">데이터를 먼저 불러오세요.</div>`;
+    return;
+  }
+
+  const groups = [{ parent: null, label: "최상위 조직" }];
+  for (const { name } of orderedTreeRows()) {
+    if (childrenOf(name).length > 1) groups.push({ parent: name, label: `"${escapeHtml(name)}" 산하` });
+  }
+  const visibleGroups = groups.filter(g => siblingsOf(g.parent).length > 1);
+  if (!visibleGroups.length) {
+    el.innerHTML = `<div class="note-box">순서를 정할 그룹이 없습니다(그룹당 부서가 1개뿐이면 정렬할 필요가 없습니다).</div>`;
+    return;
+  }
+
+  el.innerHTML = visibleGroups.map((g, gi) =>
+    `<div class="admin-hint" style="margin-top:${gi === 0 ? 0 : 10}px;">${g.label} 순서</div><div data-group-idx="${gi}"></div>`
+  ).join("");
+
+  visibleGroups.forEach((g, gi) => {
+    renderOneOrderChipRow(el.querySelector(`[data-group-idx="${gi}"]`), g.parent, siblingsOf(g.parent));
   });
 }
 
@@ -775,7 +820,9 @@ document.getElementById("file-hierarchy").addEventListener("change", (e) => {
   const statusEl = document.getElementById("hierarchy-status");
   readJsonFile(file, (json) => {
     state.parentMap = json.parent_map || {};
-    state.topLevelOrder = json.top_level_order || [];
+    // dept_order가 최신 필드명이고, top_level_order는 구버전 호환용(이전엔
+    // 최상위 순서만 저장했음 — 그대로 불러와도 deptOrder로 잘 동작함).
+    state.deptOrder = json.dept_order || json.top_level_order || [];
     statusEl.textContent = `"${file.name}" 불러옴`;
     statusEl.className = "load-status ok";
     renderAll();
@@ -784,7 +831,7 @@ document.getElementById("file-hierarchy").addEventListener("change", (e) => {
 });
 
 document.getElementById("btn-save-hierarchy").addEventListener("click", () => {
-  const payload = { parent_map: { ...state.parentMap }, top_level_order: [...state.topLevelOrder], saved_at: new Date().toISOString() };
+  const payload = { parent_map: { ...state.parentMap }, dept_order: [...state.deptOrder], saved_at: new Date().toISOString() };
   downloadJson(payload, "customq_report_hierarchy.json");
   const statusEl = document.getElementById("hierarchy-status");
   statusEl.textContent = "customq_report_hierarchy.json 저장됨";
