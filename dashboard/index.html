@@ -3057,7 +3057,7 @@ function siblingGroup(code) {
   return Object.keys(state.orgMap).filter(c => state.orgMap[c] === parent);
 }
 function confidenceLevel(rate) {
-  if (rate === null || rate === undefined) return "unknown";
+  if (rate === null || rate === undefined || rate === NO_DATA_MARKER) return "unknown";
   if (rate >= ANALYSIS.RESPONSE_RATE_TRUSTED) return "trusted";
   if (rate >= ANALYSIS.RESPONSE_RATE_CAUTION) return "caution";
   return "warning";
@@ -3576,7 +3576,7 @@ function fmtScore(v) {
   return v.toFixed(1);
 }
 function fmtPct(v) {
-  if (v === null || v === undefined) return "-";
+  if (v === null || v === undefined || v === NO_DATA_MARKER) return "-";
   return (v * 100).toFixed(1) + "%";
 }
 function yoyHtml(v) {

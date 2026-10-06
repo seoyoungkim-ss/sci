@@ -70,6 +70,17 @@ def to_float(value):
         return None
 
 
+def to_int_or_zero(value):
+    """대상인원/응답인원/레벨처럼 반드시 정수여야 하는 필드용. to_float과 같은
+    규칙으로 셀을 해석하되, "-"(NO_DATA_MARKER)나 변환 불가한 값은 그대로
+    돌려주지 않고 0으로 처리합니다 — to_float()이 돌려주는 NO_DATA_MARKER
+    문자열을 그대로 int()에 넣으면 "ValueError: invalid literal for int()
+    with base 10: '-'"로 죽기 때문(실제 운영 파일에 인원수가 "-"로 비어있는
+    행이 있어서 발생한 크래시)."""
+    v = to_float(value)
+    return int(v) if isinstance(v, (int, float)) else 0
+
+
 def parse_rows(all_values, schema):
     header_rows = schema["header_rows"]
     cols = schema["columns"]
@@ -84,8 +95,8 @@ def parse_rows(all_values, schema):
         if dept_code in (None, ""):
             continue  # blank trailing row
 
-        target_count = to_float(cell(row, cols["target_count"], first_col_index)) or 0
-        response_count = to_float(cell(row, cols["response_count"], first_col_index)) or 0
+        target_count = to_int_or_zero(cell(row, cols["target_count"], first_col_index))
+        response_count = to_int_or_zero(cell(row, cols["response_count"], first_col_index))
         response_rate = to_float(cell(row, cols["response_rate"], first_col_index))
         if response_rate is None and target_count:
             response_rate = response_count / target_count
@@ -104,11 +115,11 @@ def parse_rows(all_values, schema):
                 question_scores[f"{item_key}_{i}"] = to_float(cell(row, q_col, first_col_index))
 
         records.append({
-            "dept_level": int(cell(row, cols["dept_level"], first_col_index) or 0),
+            "dept_level": to_int_or_zero(cell(row, cols["dept_level"], first_col_index)),
             "dept_name": cell(row, cols["dept_name"], first_col_index),
             "dept_code": dept_code,
-            "target_count": int(target_count),
-            "response_count": int(response_count),
+            "target_count": target_count,
+            "response_count": response_count,
             "response_rate": response_rate,
             "leader_id": cell(row, cols["leader_id"], first_col_index),
             "leader_name": cell(row, cols["leader_name"], first_col_index),
