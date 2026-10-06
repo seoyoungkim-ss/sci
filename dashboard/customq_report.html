@@ -72,10 +72,17 @@
   .cell-delta.down { color: var(--negative); }
   .org-children-note { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 2px; }
 
+  .admin-hint { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.6; }
   .admin-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .admin-row:last-child { border-bottom: none; }
   .admin-row .label { font-size: 13px; min-width: 160px; }
   .admin-row select, .admin-row input.parent-input { padding: 4px 6px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; min-width: 220px; }
+
+  .order-chip-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .order-chip { display: flex; align-items: center; gap: 4px; background: var(--navy-100); border-radius: 6px; padding: 4px 6px 4px 10px; font-size: 13px; }
+  .order-chip button { border: none; background: none; cursor: pointer; font-size: 13px; padding: 2px 5px; color: var(--muted); }
+  .order-chip button:disabled { opacity: 0.3; cursor: default; }
+  .order-chip button:hover:not(:disabled) { color: var(--navy-900); }
 
   .top-cols { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 10px; }
   .top-cols > div { flex: 1; min-width: 260px; }
@@ -101,6 +108,11 @@
     <button class="btn ghost" id="btn-save-hierarchy">산하부서 설정 저장</button>
     <span id="hierarchy-status" class="load-status"></span>
   </div>
+  <div class="file-controls">
+    <button class="btn ghost" id="btn-load-orgmap" title="메인 대시보드에서 저장한 org_map_*.json(조직도)을 그대로 활용해 산하 부서/순서를 한 번에 채웁니다. 부서코드와 부서명이 다르면 부서코드-이름 변환표 파일도 같이 선택하세요(둘 다 선택 가능).">기존 org_map 활용</button>
+    <input type="file" id="file-orgmap" accept=".json,application/json" multiple>
+    <span id="orgmap-status" class="load-status"></span>
+  </div>
 </header>
 
 <main>
@@ -113,6 +125,11 @@
       (자기 자신 + 모든 산하 부서) 평균으로 계산됩니다 — 산하 부서 자신의 행도 그대로 남아있고,
       상위 부서 바로 아래 들여써서 보여줍니다.
     </div>
+
+    <div class="admin-hint">최상위 조직 순서 — 기본은 가나다순이지만, ◀▶로 직접 정렬할 수 있습니다(표/목록 모두 이 순서를 따름). 산하 부서는 각자의 상위 부서 바로 아래 가나다순으로 붙습니다.</div>
+    <div id="order-chip-list"></div>
+
+    <div class="admin-hint" style="margin-top:14px;">부서별 상위 부서 지정</div>
     <div id="hierarchy-list"></div>
   </div>
 
@@ -152,6 +169,10 @@ const AVG_KEY = "__avg__";
 const state = {
   quarters: {},     // { "<분기명>": [ {dept_name, response_rate, scores:{문항:점수}}, ... ] }
   parentMap: {},     // { "<부서명>": "<상위 부서명>" } — 관리자가 지정한 산하 관계
+  // 최상위 조직의 표시 순서. 기본은 가나다순이지만 관리자가 ◀▶로 직접
+  // 정렬할 수 있음(dashboard/index.html의 "분기 순서"와 동일한 방식) —
+  // 아직 순서를 안 정한 조직은 가나다순으로 뒤에 자동으로 붙음.
+  topLevelOrder: [],
   quarterCurrent: null, // 메인(비교 대상) 분기 — 기본 "3Q"
   quarterBaseline: null, // 기준(이전) 분기 — 기본 "1Q"
   trendMetric: AVG_KEY,
@@ -210,12 +231,23 @@ function wouldCreateCycle(childName, candidateParent) {
 function topLevelNames() {
   return allDeptNames().filter(n => !state.parentMap[n]);
 }
+/** 최상위 조직의 표시 순서. 관리자가 state.topLevelOrder에 명시적으로
+ * 정해둔 순서를 먼저 따르고, 아직 순서를 안 정한(새로 생겼거나 산하에서
+ * 방금 최상위로 바뀐) 조직은 가나다순으로 뒤에 붙입니다 — "순서가 선택한
+ * 순서(=매번 바뀜)로 들어간다"는 피드백 대응: 이제 한 번 정하면 저장되는
+ * 고정 순서를 씀. */
+function orderedTopLevelNames() {
+  const top = topLevelNames();
+  const ordered = state.topLevelOrder.filter(n => top.includes(n));
+  const rest = top.filter(n => !ordered.includes(n)).sort((a, b) => a.localeCompare(b));
+  return [...ordered, ...rest];
+}
 /** 표/랭킹에 실제로 올릴 전체 행 목록(최상위든 산하든 전부) — 트리 순서로
- * 정렬: 최상위 부서 바로 다음에 그 산하 부서들이 들여쓰기 깊이와 함께
- * 이어집니다. 산하로 지정된 부서도 "전체가 다 나와야" 하므로 더 이상
- * 최상위만 보여주지 않습니다 — 산하 부서 설정은 각 행의 점수를 (그 부서
- * 자신 + 그 아래 산하) 평균으로 계산하는 데만 쓰이고, 화면에서 행 자체를
- * 숨기지는 않습니다. */
+ * 정렬: 최상위 부서(관리자가 정한 순서) 바로 다음에 그 산하 부서들이
+ * (가나다순, 들여쓰기 깊이와 함께) 이어집니다. 산하로 지정된 부서도
+ * "전체가 다 나와야" 하므로 더 이상 최상위만 보여주지 않습니다 — 산하
+ * 부서 설정은 각 행의 점수를 (그 부서 자신 + 그 아래 산하) 평균으로
+ * 계산하는 데만 쓰이고, 화면에서 행 자체를 숨기지는 않습니다. */
 function orderedTreeRows() {
   const rows = [];
   const visited = new Set();
@@ -225,7 +257,7 @@ function orderedTreeRows() {
     rows.push({ name, depth });
     for (const child of childrenOf(name).sort((a, b) => a.localeCompare(b))) visit(child, depth + 1);
   }
-  for (const top of topLevelNames().sort((a, b) => a.localeCompare(b))) visit(top, 0);
+  for (const top of orderedTopLevelNames()) visit(top, 0);
   return rows;
 }
 function recordFor(quarter, name) {
@@ -272,6 +304,79 @@ function readJsonFile(file, cb) {
   };
   reader.onerror = () => alert("파일을 읽지 못했습니다: " + (reader.error?.message || "알 수 없는 오류"));
   reader.readAsText(file, "utf-8");
+}
+function readJsonFiles(files, cb) {
+  Promise.all([...files].map(f => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => { try { resolve({ name: f.name, json: JSON.parse(reader.result) }); } catch { resolve({ name: f.name, json: null }); } };
+    reader.onerror = () => resolve({ name: f.name, json: null });
+    reader.readAsText(f, "utf-8");
+  }))).then(cb);
+}
+
+/* =========================================================
+   기존 org_map_*.json(메인 대시보드 dashboard/index.html에서 저장한
+   조직도) 가져오기 — 그 파일은 부서"코드" 기준( { map: {코드: 상위코드},
+   order: [코드,...] } )인데 이 도구는 부서"이름"만 알기 때문에, 코드와
+   이름이 다르면 코드->이름 변환표(survey_data.json류: dept_code/
+   dept_name이 있는 배열, 또는 {코드:이름} 딕셔너리)도 같이 읽어서
+   번역합니다. 코드가 곧 이름과 같은 경우(변환표 없이 선택한 경우)는
+   코드 문자열 자체를 이름으로도 시도합니다.
+   ========================================================= */
+function isOrgMapShape(json) {
+  return !!(json && typeof json === "object" && !Array.isArray(json) && json.map && typeof json.map === "object");
+}
+function buildCodeToNameFromLookupFile(json) {
+  const out = {};
+  const arr = Array.isArray(json) ? json : (Array.isArray(json?.records) ? json.records : null);
+  if (arr) {
+    for (const r of arr) if (r && r.dept_code != null && r.dept_name) out[String(r.dept_code)] = r.dept_name;
+    return out;
+  }
+  if (json && typeof json === "object") {
+    for (const [k, v] of Object.entries(json)) if (typeof v === "string") out[k] = v;
+  }
+  return out;
+}
+function applyOrgMapFiles(parsedFiles) {
+  let orgMap = null;
+  let codeToName = {};
+  for (const { json } of parsedFiles) {
+    if (!json) continue;
+    if (isOrgMapShape(json)) orgMap = json;
+    else Object.assign(codeToName, buildCodeToNameFromLookupFile(json));
+  }
+  const statusEl = document.getElementById("orgmap-status");
+  if (!orgMap) {
+    statusEl.textContent = `org_map 형식의 파일을 찾지 못했습니다 — { "map": {...}, "order": [...] } 형태의 파일을 포함해서 선택하세요`;
+    statusEl.className = "load-status error";
+    return;
+  }
+  const availableNames = new Set(allDeptNames());
+  const resolveName = (code) => codeToName[code] || (availableNames.has(code) ? code : null);
+
+  const order = (Array.isArray(orgMap.order) && orgMap.order.length) ? orgMap.order : Object.keys(orgMap.map || {});
+  const newParentMap = {};
+  const newOrder = [];
+  let resolved = 0, unresolved = 0;
+  for (const code of order) {
+    const name = resolveName(code);
+    if (!name || !availableNames.has(name)) { unresolved++; continue; }
+    const parentCode = orgMap.map ? orgMap.map[code] : null;
+    if (parentCode) {
+      const parentName = resolveName(parentCode);
+      if (parentName && availableNames.has(parentName) && parentName !== name) newParentMap[name] = parentName;
+    }
+    newOrder.push(name);
+    resolved++;
+  }
+  state.parentMap = newParentMap;
+  state.topLevelOrder = newOrder;
+  statusEl.textContent = resolved
+    ? `조직도 적용됨 (${resolved}개 부서 매칭${unresolved ? `, ${unresolved}개는 현재 데이터에 없어 건너뜀` : ""})`
+    : `일치하는 부서가 없습니다 — 부서코드와 부서명이 다르면 부서코드-이름 변환표 파일도 같이 선택하세요`;
+  statusEl.className = resolved ? "load-status ok" : "load-status error";
+  renderAll();
 }
 
 /* =========================================================
@@ -324,6 +429,39 @@ async function copyMainTable() {
   } catch (err) {
     showStatus("복사에 실패했습니다. 표를 드래그해서 Ctrl+C로 복사해주세요.", "error");
   }
+}
+
+/* =========================================================
+   Admin: 최상위 조직 순서
+   ========================================================= */
+function renderOrderChips() {
+  const el = document.getElementById("order-chip-list");
+  const top = orderedTopLevelNames();
+  if (!top.length) {
+    el.innerHTML = `<div class="note-box">데이터를 먼저 불러오세요.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="order-chip-row">` + top.map((name, i) => `
+    <span class="order-chip">
+      <button class="order-move-left" data-idx="${i}" ${i === 0 ? "disabled" : ""} title="앞으로">◀</button>
+      ${escapeHtml(name)}
+      <button class="order-move-right" data-idx="${i}" ${i === top.length - 1 ? "disabled" : ""} title="뒤로">▶</button>
+    </span>`).join("") + `</div>`;
+
+  const moveOrg = (idx, delta) => {
+    const order = [...top];
+    const newIdx = idx + delta;
+    if (newIdx < 0 || newIdx >= order.length) return;
+    [order[idx], order[newIdx]] = [order[newIdx], order[idx]];
+    state.topLevelOrder = order;
+    document.getElementById("hierarchy-status").textContent = "저장되지 않은 변경사항 있음";
+    document.getElementById("hierarchy-status").className = "load-status";
+    renderAll();
+  };
+  el.querySelectorAll(".order-move-left").forEach(btn =>
+    btn.addEventListener("click", (e) => moveOrg(Number(e.target.dataset.idx), -1)));
+  el.querySelectorAll(".order-move-right").forEach(btn =>
+    btn.addEventListener("click", (e) => moveOrg(Number(e.target.dataset.idx), 1)));
 }
 
 /* =========================================================
@@ -554,6 +692,7 @@ function bind(id, evt, handler) {
 }
 
 function renderAll() {
+  renderOrderChips();
   renderHierarchyAdmin();
   renderMainTable();
   renderTrendSection();
@@ -598,6 +737,7 @@ document.getElementById("file-hierarchy").addEventListener("change", (e) => {
   const statusEl = document.getElementById("hierarchy-status");
   readJsonFile(file, (json) => {
     state.parentMap = json.parent_map || {};
+    state.topLevelOrder = json.top_level_order || [];
     statusEl.textContent = `"${file.name}" 불러옴`;
     statusEl.className = "load-status ok";
     renderAll();
@@ -606,7 +746,7 @@ document.getElementById("file-hierarchy").addEventListener("change", (e) => {
 });
 
 document.getElementById("btn-save-hierarchy").addEventListener("click", () => {
-  const payload = { parent_map: { ...state.parentMap }, saved_at: new Date().toISOString() };
+  const payload = { parent_map: { ...state.parentMap }, top_level_order: [...state.topLevelOrder], saved_at: new Date().toISOString() };
   downloadJson(payload, "customq_report_hierarchy.json");
   const statusEl = document.getElementById("hierarchy-status");
   statusEl.textContent = "customq_report_hierarchy.json 저장됨";
@@ -614,6 +754,14 @@ document.getElementById("btn-save-hierarchy").addEventListener("click", () => {
 });
 
 document.getElementById("btn-copy-main-table").addEventListener("click", copyMainTable);
+
+document.getElementById("btn-load-orgmap").addEventListener("click", () => document.getElementById("file-orgmap").click());
+document.getElementById("file-orgmap").addEventListener("change", (e) => {
+  const files = e.target.files;
+  if (!files.length) return;
+  readJsonFiles(files, applyOrgMapFiles);
+  e.target.value = "";
+});
 
 renderAll();
 </script>
